@@ -1,0 +1,1805 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NOTASI - Notulensi Otomatis Berbasis AI</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'DM Sans', sans-serif; }
+    .page { display: none; }
+    .page.active { display: block; }
+    .nav-item { transition: all 0.2s; }
+    .nav-item:hover, .nav-item.active { background: rgba(59,130,246,0.1); color: #3B82F6; }
+    .stat-card { transition: transform 0.2s, box-shadow 0.2s; }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
+    .dropzone.dragover { border-color:#3B82F6; background:#EFF6FF; }
+    #app-shell { display: none; }
+    .fun-msg { transition: opacity .45s ease; min-height: 1.5rem; }
+    .fun-msg.fade { opacity: 0; }
+    #ring-fg, #mini-ring-fg { transition: stroke-dashoffset .8s ease; }
+    .modal-overlay { background: rgba(0,0,0,.45); }
+    /* Dokumen pratinjau bergaya template resmi */
+    #preview-doc { color: #111; }
+    #preview-doc table { border-collapse: collapse; width: 100%; }
+    #preview-doc th, #preview-doc td { border: 1px solid #444; padding: 6px 10px; font-size: 13px; text-align: left; vertical-align: top; }
+    #preview-doc th { font-weight: 700; background: #f3f4f6; }
+    /* Lembar editor bergaya dokumen */
+    .doc-sheet { color: #111; }
+    .doc-table { border-collapse: collapse; width: 100%; }
+    .doc-table th, .doc-table td { border: 1px solid #444; padding: 5px 8px; font-size: 13px; text-align: left; vertical-align: middle; }
+    .doc-table th { font-weight: 700; background: #f3f4f6; }
+    .ed-in { width: 100%; border: none; outline: none; background: transparent; font-size: 13px; padding: 2px; }
+    .ed-in:focus { background: #EFF6FF; border-radius: 3px; }
+    .ed-line:focus { background: #EFF6FF; }
+    .ed-line:empty:before { content: attr(data-placeholder); color: #9ca3af; }
+    /* Mode cetak: hanya dokumen pratinjau yang tampil */
+    @media print {
+      body { background: white !important; }
+      aside, .app-header, .no-print { display: none !important; }
+      main { padding: 0 !important; background: white !important; }
+      .page { display: none !important; }
+      #page-preview { display: block !important; }
+      #preview-doc { box-shadow: none !important; border: none !important; max-width: 100% !important; padding: 0 !important; }
+      #preview-doc th { background: #eee !important; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- ============ LOGIN ============ -->
+  <div id="page-login" class="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div class="w-full max-w-sm bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 mx-auto mb-3 rounded-xl bg-blue-600 flex items-center justify-center">
+          <i data-lucide="file-text" style="width:26px;height:26px;color:white"></i>
+        </div>
+        <h1 class="text-xl font-bold text-gray-800">NOTASI</h1>
+        <p class="text-xs text-gray-500 mt-1">Notulensi Otomatis Berbasis AI</p>
+      </div>
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+          <input id="login-username" type="text" required value="admin"
+                 class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Kata Sandi</label>
+          <input id="login-password" type="password" required value="admin123"
+                 class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+        </div>
+        <p id="login-error" class="text-xs text-red-500 hidden"></p>
+        <button type="submit" class="w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Masuk</button>
+        <p class="text-xs text-gray-400 text-center pt-1">Akun default: admin / admin123</p>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ APP SHELL ============ -->
+  <div id="app-shell" class="min-h-screen flex">
+    <aside class="w-64 min-h-screen flex-shrink-0 flex flex-col border-r border-gray-200 bg-white">
+      <div class="p-6 border-b border-gray-100">
+        <h1 class="text-xl font-bold text-blue-700">NOTASI</h1>
+        <p class="text-xs mt-1 opacity-60">Notulensi Otomatis Berbasis AI</p>
+        <p id="demo-badge" class="hidden text-[10px] mt-2 inline-block px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">MODE DEMO</p>
+      </div>
+      <nav class="flex-1 p-4 space-y-1">
+        <button onclick="showPage('dashboard')" class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm" data-nav="dashboard"><i data-lucide="layout-dashboard" style="width:18px;height:18px"></i><span>Dashboard</span></button>
+        <button onclick="showPage('buat')" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm" data-nav="buat"><i data-lucide="mic" style="width:18px;height:18px"></i><span>Buat Notulensi</span></button>
+        <button onclick="showPage('arsip')" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm" data-nav="arsip"><i data-lucide="folder" style="width:18px;height:18px"></i><span>Arsip Notulensi</span></button>
+        <button onclick="showPage('statistik')" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm" data-nav="statistik"><i data-lucide="bar-chart-3" style="width:18px;height:18px"></i><span>Statistik</span></button>
+        <button onclick="showPage('pengaturan')" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm" data-nav="pengaturan"><i data-lucide="settings" style="width:18px;height:18px"></i><span>Pengaturan</span></button>
+      </nav>
+      <div class="p-4 border-t border-gray-100">
+        <button onclick="logout()" class="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm text-red-600 hover:bg-red-50">
+          <i data-lucide="log-out" style="width:18px;height:18px"></i><span>Keluar</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col min-h-screen overflow-auto">
+      <header class="app-header flex items-center justify-between px-8 py-4 border-b border-gray-200 bg-white">
+        <h2 id="page-heading" class="text-lg font-semibold text-gray-800">Dashboard</h2>
+        <div class="flex items-center gap-4">
+          <!-- Indikator proses global: klik untuk melihat proses yang berjalan -->
+          <button id="global-process" onclick="gotoActiveProcess()"
+                  class="hidden items-center gap-2 pl-2 pr-3 py-1.5 rounded-full bg-blue-50 hover:bg-blue-100 transition-colors"
+                  title="Klik untuk melihat proses">
+            <svg width="26" height="26" viewBox="0 0 26 26">
+              <circle cx="13" cy="13" r="10" stroke="#DBEAFE" stroke-width="4" fill="none"/>
+              <circle id="mini-ring-fg" cx="13" cy="13" r="10" stroke="#3B82F6" stroke-width="4" fill="none"
+                      stroke-linecap="round" stroke-dasharray="62.83" stroke-dashoffset="62.83"
+                      transform="rotate(-90 13 13)"/>
+            </svg>
+            <span id="global-process-label" class="text-xs font-semibold text-blue-700">0%</span>
+          </button>
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold text-sm" id="user-avatar">A</div>
+            <div>
+              <p id="user-name" class="text-sm font-medium">-</p>
+              <p id="user-role" class="text-xs opacity-60">-</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="flex-1 p-8 bg-gray-50/50">
+
+        <!-- ============ DASHBOARD ============ -->
+        <div class="page active" id="page-dashboard">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="stat-card bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <div class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center"><i data-lucide="calendar" style="width:20px;height:20px;color:#3B82F6"></i></div>
+                <p class="text-sm opacity-60">Total Rapat</p>
+              </div>
+              <p id="stat-total-value" class="text-2xl font-bold">0</p>
+            </div>
+            <div class="stat-card bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <div class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center"><i data-lucide="file-text" style="width:20px;height:20px;color:#22C55E"></i></div>
+                <p class="text-sm opacity-60">Notulensi Bulan Ini</p>
+              </div>
+              <p id="stat-month-value" class="text-2xl font-bold">0</p>
+            </div>
+            <div class="stat-card bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <div class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center"><i data-lucide="archive" style="width:20px;height:20px;color:#8B5CF6"></i></div>
+                <p class="text-sm opacity-60">Total Arsip</p>
+              </div>
+              <p id="stat-arsip-value" class="text-2xl font-bold">0</p>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 mb-8">
+            <h3 class="font-semibold text-gray-800 mb-4">Jumlah Rapat per Bulan</h3>
+            <div id="chart-bulanan" class="flex items-end gap-3 h-40"></div>
+          </div>
+
+          <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <h3 class="font-semibold text-gray-800 mb-4">Notulensi Terbaru</h3>
+            <div id="recent-list" class="space-y-3"><p class="text-sm text-gray-400">Memuat data...</p></div>
+          </div>
+        </div>
+
+        <!-- ============ BUAT NOTULENSI ============ -->
+        <div class="page" id="page-buat">
+          <div id="buat-form">
+            <div class="bg-white rounded-xl p-8 shadow-sm border border-gray-100 max-w-4xl">
+              <h3 class="text-lg font-semibold mb-6">Form Rapat Baru</h3>
+              <form id="meeting-form" class="space-y-5">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Unit Kerja</label>
+                    <input id="f-unit-kerja" type="text" value="BPS Kabupaten Sanggau"
+                           class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Topik / Nama Rapat</label>
+                    <input id="f-judul" type="text" required value="Rapat Tim IPDS BPS Kabupaten Sanggau"
+                           class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                    <input id="f-tanggal" type="date" required
+                           class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tempat</label>
+                    <input id="f-lokasi" type="text" value="Ruang Rapat BPS Kabupaten Sanggau"
+                           class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Waktu Mulai</label>
+                    <input id="f-waktu-mulai" type="time" value="08:30"
+                           class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Waktu Selesai</label>
+                    <input id="f-waktu-selesai" type="time" value="10:00"
+                           class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Pimpinan Rapat</label>
+                    <select id="f-pimpinan" required class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"></select>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Notulis</label>
+                    <select id="f-notulis" required class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"></select>
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">Peserta Rapat</label>
+                  <div id="f-peserta-list" class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3"></div>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Agenda</label>
+                  <textarea id="f-agenda" rows="2" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">Evaluasi kegiatan dan pembagian tugas</textarea>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Catatan Kasar Notulis <span class="text-gray-400 font-normal">(opsional)</span></label>
+                  <textarea id="f-catatan-notulis" rows="3" placeholder="Poin-poin yang dicatat manual selama rapat berlangsung - akan ikut dipertimbangkan AI saat menyusun ringkasan, keputusan, dan tindak lanjut." class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"></textarea>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Materi Rapat <span class="text-gray-400 font-normal">(opsional - PDF, DOCX, PPTX, TXT)</span></label>
+                  <p class="text-xs text-gray-500 mb-2">Dokumen pendukung (bahan presentasi, laporan, dsb) - teksnya ikut dipertimbangkan AI saat menyusun ringkasan.</p>
+                  <input id="f-materi" type="file" accept=".pdf,.docx,.pptx,.txt" multiple
+                         class="block w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 file:text-sm file:font-medium hover:file:bg-blue-100">
+                  <ul id="f-materi-list" class="mt-2 space-y-1 text-sm"></ul>
+                </div>
+
+                <div id="dropzone" class="dropzone border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-400 transition-colors cursor-pointer">
+                  <input id="f-audio" type="file" accept="audio/*,.txt,text/plain" class="hidden" required>
+                  <div id="dropzone-empty">
+                    <i data-lucide="upload-cloud" style="width:48px;height:48px;color:#9ca3af;margin:0 auto"></i>
+                    <p class="mt-3 text-sm text-gray-600">Drag &amp; drop file audio atau teks transkrip, atau <span class="text-blue-500 font-medium">klik untuk upload</span></p>
+                    <p class="text-xs text-gray-400 mt-1">MP3, WAV, M4A - atau .TXT bila transkrip sudah ada (STT dilewati)</p>
+                  </div>
+                  <div id="dropzone-filled" class="hidden mt-2 inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">
+                    <i data-lucide="file-audio" style="width:16px;height:16px"></i>
+                    <span id="dropzone-filename"></span>
+                    <i data-lucide="check-circle" style="width:16px;height:16px;color:#22C55E"></i>
+                  </div>
+                </div>
+                <p id="form-error" class="text-xs text-red-500 hidden"></p>
+
+                <div class="flex gap-3 pt-2">
+                  <button type="submit" class="px-6 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700">
+                    <i data-lucide="sparkles" style="width:16px;height:16px"></i> Proses dengan AI
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- PROGRESS: lingkaran 0-100% + kata-kata bergilir -->
+          <div id="buat-progress" class="hidden">
+            <div class="bg-white rounded-xl p-8 shadow-sm border border-gray-100 max-w-xl mx-auto text-center">
+              <div class="relative w-44 h-44 mx-auto mb-4">
+                <svg width="176" height="176" viewBox="0 0 176 176">
+                  <circle cx="88" cy="88" r="74" stroke="#E5E7EB" stroke-width="14" fill="none"/>
+                  <circle id="ring-fg" cx="88" cy="88" r="74" stroke="#3B82F6" stroke-width="14" fill="none"
+                          stroke-linecap="round" stroke-dasharray="464.96" stroke-dashoffset="464.96"
+                          transform="rotate(-90 88 88)"/>
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                  <span id="ring-percent" class="text-4xl font-bold text-gray-800">0%</span>
+                  <i data-lucide="brain" style="width:20px;height:20px;color:#3B82F6" class="animate-pulse mt-1"></i>
+                </div>
+              </div>
+              <p id="fun-message" class="fun-msg text-sm font-medium text-blue-600">Menyiapkan segalanya...</p>
+              <p id="stage-text" class="text-xs text-gray-500 mt-1 mb-4">-</p>
+              <p class="text-xs text-gray-400">Proses berjalan di latar belakang — Anda bebas berpindah halaman.<br>Indikator di pojok kanan atas akan terus memantau kemajuannya.</p>
+              <p id="progress-error" class="text-xs text-red-500 mt-4 hidden"></p>
+              <div class="mt-5 flex justify-center gap-3">
+                <button onclick="forceNewForm()" class="px-4 py-2 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200">+ Buat Rapat Lain</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- HASIL / EDITOR -->
+          <div id="buat-hasil" class="hidden space-y-6">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <h3 class="text-lg font-semibold text-gray-800">Hasil Analisis AI</h3>
+              <div class="flex gap-2 flex-wrap">
+                <button onclick="simpanSunting()" class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700">
+                  <i data-lucide="save" style="width:15px;height:15px"></i> Simpan
+                </button>
+                <button onclick="openEditor(currentMeetingId)" class="px-4 py-2 rounded-lg text-sm font-medium bg-amber-500 text-white flex items-center gap-2 hover:bg-amber-600">
+                  <i data-lucide="pencil" style="width:15px;height:15px"></i> Editor Lengkap
+                </button>
+                <button onclick="openPreview(currentMeetingId)" class="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white flex items-center gap-2 hover:bg-indigo-700">
+                  <i data-lucide="eye" style="width:15px;height:15px"></i> Pratinjau Notula
+                </button>
+                <button onclick="exportFile('docx')" class="px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white flex items-center gap-2 hover:bg-green-700">
+                  <i data-lucide="file-text" style="width:15px;height:15px"></i> Export Word
+                </button>
+                <button onclick="exportFile('pdf')" class="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 text-white flex items-center gap-2 hover:bg-red-600">
+                  <i data-lucide="file" style="width:15px;height:15px"></i> Export PDF
+                </button>
+              </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <h4 class="font-semibold text-gray-800 mb-3 flex items-center gap-2"><i data-lucide="file-text" style="width:18px;height:18px;color:#3B82F6"></i> Transkripsi Lengkap</h4>
+              <textarea id="hasil-transkripsi" rows="6" class="w-full p-4 border border-gray-200 rounded-lg text-sm text-gray-700 resize-y"></textarea>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <h4 class="font-semibold text-gray-800 mb-3 flex items-center gap-2"><i data-lucide="list" style="width:18px;height:18px;color:#3B82F6"></i> Ringkasan / Pembahasan Rapat</h4>
+              <ul id="hasil-ringkasan" class="space-y-2 text-sm text-gray-700"></ul>
+              <p class="text-xs text-gray-400 mt-2">Klik poin untuk mengedit.</p>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <h4 class="font-semibold text-gray-800 mb-3 flex items-center gap-2"><i data-lucide="check-square" style="width:18px;height:18px;color:#22C55E"></i> Keputusan Rapat</h4>
+              <ul id="hasil-keputusan" class="space-y-2 text-sm text-gray-700"></ul>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <h4 class="font-semibold text-gray-800 mb-3 flex items-center gap-2"><i data-lucide="clipboard-list" style="width:18px;height:18px;color:#F59E0B"></i> Tindak Lanjut</h4>
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="border-b border-gray-200 text-left text-gray-500">
+                      <th class="pb-3 pr-4">No</th><th class="pb-3 pr-4">Action Item</th>
+                      <th class="pb-3 pr-4">PIC</th><th class="pb-3 pr-4">Deadline</th><th class="pb-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="hasil-tindaklanjut" class="text-gray-700"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <h4 class="font-semibold text-gray-800 mb-3 flex items-center gap-2"><i data-lucide="camera" style="width:18px;height:18px;color:#8B5CF6"></i> Bukti Dokumentasi Kegiatan</h4>
+              <p class="text-xs text-gray-500 mb-3">Foto yang diunggah otomatis disisipkan ke bagian "Dokumentasi Kegiatan" pada dokumen Word/PDF hasil ekspor.</p>
+              <div id="bukti-grid" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"></div>
+              <input id="f-bukti" type="file" accept="image/*" multiple class="hidden">
+              <button type="button" onclick="document.getElementById('f-bukti').click()"
+                      class="px-4 py-2 rounded-lg text-sm font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 flex items-center gap-2">
+                <i data-lucide="upload" style="width:15px;height:15px"></i> Unggah Foto Dokumentasi
+              </button>
+              <span id="bukti-status" class="text-xs text-gray-400 ml-2"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ ARSIP (CRUD) ============ -->
+        <div class="page" id="page-arsip">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-sm text-gray-500">Kelola seluruh notula: lihat, sunting, ekspor, atau hapus.</p>
+            <button onclick="showPage('buat')" class="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white flex items-center gap-2 hover:bg-blue-700">
+              <i data-lucide="plus" style="width:15px;height:15px"></i> Buat Baru
+            </button>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50">
+                <tr class="text-left text-gray-500">
+                  <th class="p-4">Topik Rapat</th><th class="p-4">Tanggal</th>
+                  <th class="p-4">Tempat</th><th class="p-4">Status</th><th class="p-4">Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="arsip-list"></tbody>
+            </table>
+            <p id="arsip-empty" class="hidden text-sm text-gray-400 p-6 text-center">Belum ada notulensi tersimpan.</p>
+          </div>
+        </div>
+
+        <!-- ============ PRATINJAU (READ berformat template) ============ -->
+        <div class="page" id="page-preview">
+          <div class="no-print flex items-center justify-between mb-4 flex-wrap gap-2">
+            <button onclick="showPage('arsip')" class="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 flex items-center gap-2 hover:bg-gray-200">
+              <i data-lucide="arrow-left" style="width:15px;height:15px"></i> Kembali
+            </button>
+            <div class="flex gap-2 flex-wrap relative">
+              <button onclick="openEditor(currentMeetingId)" class="px-4 py-2 rounded-lg text-sm font-medium bg-amber-500 text-white flex items-center gap-2 hover:bg-amber-600">
+                <i data-lucide="pencil" style="width:15px;height:15px"></i> Edit
+              </button>
+              <button onclick="window.print()" class="px-4 py-2 rounded-lg text-sm font-medium bg-gray-700 text-white flex items-center gap-2 hover:bg-gray-800">
+                <i data-lucide="printer" style="width:15px;height:15px"></i> Cetak
+              </button>
+              <button onclick="toggleShareMenu(event)" class="px-4 py-2 rounded-lg text-sm font-medium bg-sky-600 text-white flex items-center gap-2 hover:bg-sky-700">
+                <i data-lucide="share-2" style="width:15px;height:15px"></i> Bagikan
+              </button>
+              <button onclick="exportFile('docx')" class="px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white flex items-center gap-2 hover:bg-green-700">
+                <i data-lucide="file-text" style="width:15px;height:15px"></i> Word
+              </button>
+              <button onclick="exportFile('pdf')" class="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 text-white flex items-center gap-2 hover:bg-red-600">
+                <i data-lucide="file" style="width:15px;height:15px"></i> PDF
+              </button>
+              <!-- menu bagikan -->
+              <div id="share-menu" class="hidden absolute right-0 top-12 z-20 w-60 bg-white border border-gray-200 rounded-xl shadow-lg p-2 text-sm">
+                <button onclick="shareWA()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center gap-2"><i data-lucide="message-circle" style="width:15px;height:15px;color:#22C55E"></i> Bagikan via WhatsApp</button>
+                <button onclick="shareEmail()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center gap-2"><i data-lucide="mail" style="width:15px;height:15px;color:#3B82F6"></i> Kirim via Email</button>
+                <button onclick="copyRingkasan()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center gap-2"><i data-lucide="copy" style="width:15px;height:15px;color:#6B7280"></i> Salin Teks Ringkasan</button>
+                <button onclick="shareFileNative()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center gap-2"><i data-lucide="send" style="width:15px;height:15px;color:#8B5CF6"></i> Bagikan Berkas Word</button>
+              </div>
+            </div>
+          </div>
+          <div id="preview-doc" class="bg-white rounded-xl shadow-sm border border-gray-200 max-w-4xl mx-auto p-10"></div>
+        </div>
+
+        <!-- ============ EDITOR NOTULA (edit seluruh isi, gaya dokumen) ============ -->
+        <div class="page" id="page-editor">
+          <div class="no-print flex items-center justify-between mb-4 flex-wrap gap-2">
+            <button onclick="showPage('arsip')" class="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 flex items-center gap-2 hover:bg-gray-200">
+              <i data-lucide="arrow-left" style="width:15px;height:15px"></i> Kembali
+            </button>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span id="editor-saved" class="text-xs text-green-600 hidden">Tersimpan ✓</span>
+              <button onclick="saveEditor()" class="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white flex items-center gap-2 hover:bg-blue-700">
+                <i data-lucide="save" style="width:15px;height:15px"></i> Simpan Perubahan
+              </button>
+              <button onclick="saveEditorThenPreview()" class="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white flex items-center gap-2 hover:bg-indigo-700">
+                <i data-lucide="eye" style="width:15px;height:15px"></i> Simpan &amp; Pratinjau
+              </button>
+            </div>
+          </div>
+          <p class="text-xs text-gray-500 mb-3 text-center">Semua bagian di bawah dapat langsung disunting seperti dokumen. Jangan lupa menekan <b>Simpan Perubahan</b>.</p>
+
+          <!-- Lembar dokumen -->
+          <div class="bg-white rounded-xl shadow-sm border border-gray-200 max-w-4xl mx-auto p-10 doc-sheet">
+            <div class="text-center border-b-2 border-gray-800 pb-3 mb-6">
+              <p id="ed-kop-nama" class="font-bold italic text-base"></p>
+              <p id="ed-kop-alamat" class="text-[11px] text-gray-600 mt-1"></p>
+            </div>
+            <h2 class="text-center font-bold text-base mb-5">NOTULA KEGIATAN <span id="ed-judul-head"></span></h2>
+
+            <!-- Metadata -->
+            <table class="doc-table mb-5">
+              <tr>
+                <th style="width:15%">Unit Kerja</th>
+                <td style="width:35%"><input id="ed-unit-kerja" class="ed-in" type="text"></td>
+                <th style="width:15%">Tanggal</th>
+                <td style="width:35%"><input id="ed-tanggal" class="ed-in" type="date"></td>
+              </tr>
+              <tr>
+                <th>Topik</th><td><input id="ed-judul" class="ed-in" type="text"></td>
+                <th>Tempat</th><td><input id="ed-lokasi" class="ed-in" type="text"></td>
+              </tr>
+              <tr>
+                <th>Waktu</th>
+                <td><input id="ed-waktu-mulai" class="ed-in" type="time" style="width:45%"> s.d. <input id="ed-waktu-selesai" class="ed-in" type="time" style="width:45%"></td>
+                <th>Pimpinan</th><td><select id="ed-pimpinan" class="ed-in"></select></td>
+              </tr>
+              <tr>
+                <th>Notulis</th><td><select id="ed-notulis" class="ed-in"></select></td>
+                <th>Agenda</th><td><input id="ed-agenda" class="ed-in" type="text"></td>
+              </tr>
+              <tr>
+                <th>Catatan Notulis</th>
+                <td colspan="3"><textarea id="ed-catatan-notulis" class="ed-in" rows="2" placeholder="Catatan kasar notulis (opsional)"></textarea></td>
+              </tr>
+            </table>
+
+            <!-- Peserta -->
+            <div class="flex items-center justify-between mb-1">
+              <p class="font-bold text-sm">Peserta Rapat</p>
+              <button onclick="toggleEdPeserta()" class="text-xs text-blue-600 hover:underline">Ubah daftar peserta</button>
+            </div>
+            <div id="ed-peserta-picker" class="hidden grid grid-cols-1 md:grid-cols-2 gap-2 max-h-44 overflow-y-auto border border-gray-200 rounded-lg p-3 mb-3"></div>
+            <table class="doc-table mb-6"><thead><tr><th>Nama</th><th>Jabatan</th><th>Nama</th><th>Jabatan</th></tr></thead>
+              <tbody id="ed-peserta-tabel"></tbody></table>
+
+            <!-- Pembahasan -->
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-bold text-sm">Pembahasan Rapat</h3>
+              <button onclick="edAddItem('ed-ringkasan')" class="text-xs text-blue-600 hover:underline">+ Tambah poin</button>
+            </div>
+            <div id="ed-ringkasan" class="mb-5 space-y-2"></div>
+
+            <!-- Keputusan -->
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-bold text-sm">Keputusan Rapat</h3>
+              <button onclick="edAddItem('ed-keputusan')" class="text-xs text-blue-600 hover:underline">+ Tambah keputusan</button>
+            </div>
+            <div id="ed-keputusan" class="mb-5 space-y-2"></div>
+
+            <!-- Tindak lanjut -->
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-bold text-sm">Tindak Lanjut</h3>
+              <button onclick="edAddAction()" class="text-xs text-blue-600 hover:underline">+ Tambah baris</button>
+            </div>
+            <table class="doc-table mb-6">
+              <thead><tr><th style="width:40%">Action Item</th><th style="width:22%">Penanggung Jawab</th><th style="width:18%">Deadline</th><th style="width:14%">Status</th><th style="width:6%"></th></tr></thead>
+              <tbody id="ed-tindaklanjut"></tbody>
+            </table>
+
+            <!-- Transkripsi -->
+            <h3 class="font-bold text-sm mb-2">Transkripsi Lengkap</h3>
+            <textarea id="ed-transkripsi" rows="10" class="w-full p-3 border border-gray-300 rounded-lg text-sm leading-relaxed resize-y mb-6"></textarea>
+
+            <!-- Dokumentasi -->
+            <div class="border-t border-gray-200 pt-5">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="font-bold text-sm flex items-center gap-2"><i data-lucide="camera" style="width:16px;height:16px;color:#8B5CF6"></i> Bukti Dokumentasi Kegiatan</h3>
+                <span id="ed-bukti-status" class="text-xs text-gray-400"></span>
+              </div>
+              <p class="text-xs text-gray-500 mb-3">Foto yang diunggah otomatis disisipkan ke bagian "Dokumentasi Kegiatan" pada dokumen Word/PDF hasil ekspor.</p>
+              <div id="ed-bukti-grid" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"></div>
+              <input id="ed-bukti-input" type="file" accept="image/*" multiple class="hidden">
+              <div id="ed-bukti-drop" class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-purple-400 transition-colors cursor-pointer">
+                <i data-lucide="image-plus" style="width:32px;height:32px;color:#9ca3af;margin:0 auto"></i>
+                <p class="mt-2 text-sm text-gray-600">Drag &amp; drop foto atau <span class="text-purple-600 font-medium">klik untuk memilih</span></p>
+                <p class="text-xs text-gray-400 mt-1">JPG, PNG — bisa beberapa sekaligus</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ STATISTIK ============ -->
+        <div class="page" id="page-statistik">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <h3 class="font-semibold text-gray-800 mb-4">Jumlah Rapat per Bulan</h3>
+              <div id="chart-bulanan-2" class="flex items-end gap-3 h-40"></div>
+            </div>
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <h3 class="font-semibold text-gray-800 mb-4">Ringkasan Efisiensi</h3>
+              <ul class="text-sm text-gray-700 space-y-2">
+                <li>Total rapat terdokumentasi: <span id="st-total" class="font-semibold">0</span></li>
+                <li>Total arsip notulensi: <span id="st-arsip" class="font-semibold">0</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ PENGATURAN ============ -->
+        <div class="page" id="page-pengaturan">
+          <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 max-w-2xl space-y-5">
+            <h3 class="font-semibold text-gray-800">Status Mesin AI</h3>
+            <div class="grid grid-cols-3 gap-4">
+              <div class="border border-gray-200 rounded-lg p-4">
+                <p class="text-xs text-gray-500 mb-1">Speech-to-Text</p>
+                <p id="cfg-stt" class="font-semibold text-sm">-</p>
+              </div>
+              <div class="border border-gray-200 rounded-lg p-4">
+                <p class="text-xs text-gray-500 mb-1">Peringkasan (LLM)</p>
+                <p id="cfg-llm" class="font-semibold text-sm">-</p>
+              </div>
+              <div class="border border-gray-200 rounded-lg p-4">
+                <p class="text-xs text-gray-500 mb-1">Export PDF</p>
+                <p id="cfg-pdf" class="font-semibold text-sm">-</p>
+              </div>
+            </div>
+            <div class="text-xs text-gray-500 space-y-2 bg-gray-50 rounded-lg p-4">
+              <p><b>demo</b> = data contoh, tanpa biaya, tanpa API key.</p>
+              <p><b>openai</b> = OpenAI Whisper/GPT, berbayar, butuh API key.</p>
+              <p><b>local / ollama</b> = jalan di server sendiri (faster-whisper &amp; Ollama Llama3/Mistral), gratis, tanpa API key.</p>
+              <p>Export PDF membutuhkan <b>LibreOffice</b> terpasang di server (gratis, https://libreoffice.org). Export Word tidak membutuhkan apa pun.</p>
+            </div>
+
+            <div id="pengaturan-admin" class="hidden space-y-4">
+              <hr>
+              <h3 class="font-semibold text-gray-800">Ganti Mode AI</h3>
+              <p class="text-xs text-gray-500">Berlaku langsung, tanpa perlu restart server.</p>
+              <div id="pengaturan-msg" class="hidden text-sm rounded-lg px-4 py-2"></div>
+              <div class="grid grid-cols-3 gap-3">
+                <button type="button" onclick="terapkanModeAI('demo')"
+                        class="border border-gray-200 rounded-lg p-3 text-left hover:border-blue-400 transition-colors">
+                  <p class="font-semibold text-sm">Demo</p>
+                  <p class="text-xs text-gray-500">Tanpa biaya, data contoh</p>
+                </button>
+                <button type="button" onclick="terapkanModeAI('gratis')"
+                        class="border border-gray-200 rounded-lg p-3 text-left hover:border-blue-400 transition-colors">
+                  <p class="font-semibold text-sm">Gratis (Lokal)</p>
+                  <p class="text-xs text-gray-500">faster-whisper + Ollama</p>
+                </button>
+                <button type="button" onclick="terapkanModeAI('berbayar')"
+                        class="border border-gray-200 rounded-lg p-3 text-left hover:border-blue-400 transition-colors">
+                  <p class="font-semibold text-sm">Berbayar (OpenAI)</p>
+                  <p class="text-xs text-gray-500">Whisper API + GPT</p>
+                </button>
+              </div>
+
+              <button type="button" onclick="document.getElementById('pengaturan-lanjutan').classList.toggle('hidden')"
+                      class="text-xs text-blue-600 hover:underline">Setelan lanjutan</button>
+              <div id="pengaturan-lanjutan" class="hidden space-y-3 bg-gray-50 rounded-lg p-4">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">STT Provider</label>
+                    <select id="set-stt" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                      <option value="demo">demo</option><option value="local">local</option><option value="openai">openai</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">LLM Provider</label>
+                    <select id="set-llm" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                      <option value="demo">demo</option><option value="ollama">ollama</option><option value="openai">openai</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Model Whisper Lokal</label>
+                    <select id="set-whisper-model" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                      <option value="tiny">tiny</option><option value="base">base</option>
+                      <option value="small">small</option><option value="medium">medium</option>
+                      <option value="large-v3">large-v3</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Model Ollama</label>
+                    <input id="set-ollama-model" type="text" placeholder="llama3.2:3b"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                  </div>
+                  <div class="col-span-2">
+                    <label class="block text-xs font-medium text-gray-700 mb-1">OpenAI API Key</label>
+                    <input id="set-openai-key" type="password" placeholder="sk-..."
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    <p id="set-openai-key-status" class="text-xs text-gray-400 mt-1"></p>
+                  </div>
+                </div>
+                <button type="button" onclick="simpanPengaturanLanjutan()"
+                        class="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700">
+                  Simpan Setelan Lanjutan
+                </button>
+              </div>
+            </div>
+
+            <hr>
+            <h3 class="font-semibold text-gray-800">Akun</h3>
+            <p class="text-sm text-gray-700">Login sebagai: <span id="cfg-user" class="font-semibold">-</span></p>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // KONFIGURASI & HELPER API
+    // ============================================================
+    const API_BASE = "";
+    let appConfig = {};
+    let pegawaiList = [];
+    let currentMeetingId = null;
+    let currentMeetingTitle = "";
+    let previewData = null;
+    let currentUser = null;
+    let activeProcess = null;   // id rapat yang sedang diproses AI
+    let processDone = null;     // id rapat yang selesai saat pengguna di halaman lain
+    let pollTimer = null;
+    let funTimer = null;
+
+    function authHeader() {
+      const t = localStorage.getItem("notasi_token");
+      return t ? { "Authorization": "Bearer " + t } : {};
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(API_BASE + path, { ...options, headers: { ...(options.headers || {}), ...authHeader() } });
+      if (res.status === 401) { logout(); throw new Error("Sesi berakhir, silakan login kembali"); }
+      if (!res.ok) {
+        let detail = "Terjadi kesalahan (" + res.status + ")";
+        try { detail = (await res.json()).detail || detail; } catch (e) {}
+        throw new Error(detail);
+      }
+      const ct = res.headers.get("content-type") || "";
+      return ct.includes("application/json") ? res.json() : res;
+    }
+
+    function escapeHtml(str) {
+      return (str || "").toString().replace(/[&<>"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[s]));
+    }
+
+    // ---- Tanggal & waktu format Indonesia (padanan utils/indo_date.py) ----
+    const HARI_JS = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
+    const BULAN_ID = ["","Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+    function tglLengkap(iso) {
+      if (!iso) return "-";
+      const d = new Date(iso + "T00:00:00");
+      return `${HARI_JS[d.getDay()]}, ${d.getDate()} ${BULAN_ID[d.getMonth()+1]} ${d.getFullYear()}`;
+    }
+    function tglSingkat(iso) {
+      if (!iso) return "-";
+      const d = new Date(iso + "T00:00:00");
+      return `${d.getDate()} ${BULAN_ID[d.getMonth()+1]} ${d.getFullYear()}`;
+    }
+    function jamWIB(t) { return t ? t.replace(":", ".") + " WIB" : "-"; }
+    function durasiJam(m, s) {
+      if (!m || !s) return "-";
+      const [h1, n1] = m.split(":").map(Number), [h2, n2] = s.split(":").map(Number);
+      const menit = (h2 * 60 + n2) - (h1 * 60 + n1);
+      if (menit <= 0) return "-";
+      const jam = Math.round((menit / 60) * 2) / 2;
+      return (Number.isInteger(jam) ? jam : String(jam).replace(".", ",")) + " jam";
+    }
+
+    // ============================================================
+    // AUTH
+    // ============================================================
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById("login-error");
+      errEl.classList.add("hidden");
+      try {
+        const data = await api("/api/auth/login", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: document.getElementById("login-username").value,
+            password: document.getElementById("login-password").value,
+          }),
+        });
+        localStorage.setItem("notasi_token", data.access_token);
+        await enterApp();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.remove("hidden");
+      }
+    });
+
+    function logout() {
+      localStorage.removeItem("notasi_token");
+      stopWatch();
+      document.getElementById("app-shell").style.display = "none";
+      document.getElementById("page-login").style.display = "flex";
+    }
+
+    async function enterApp() {
+      try {
+        const me = await api("/api/auth/me");
+        currentUser = me;
+        document.getElementById("user-name").textContent = me.nama;
+        document.getElementById("user-role").textContent = me.role === "admin" ? "Administrator" : "Pegawai";
+        document.getElementById("user-avatar").textContent = me.nama.charAt(0).toUpperCase();
+        document.getElementById("cfg-user").textContent = me.nama + " (" + me.username + ")";
+      } catch (err) { return logout(); }
+
+      appConfig = await api("/api/config");
+      document.getElementById("cfg-stt").textContent = appConfig.whisper_model
+        ? `${appConfig.stt_provider} (${appConfig.whisper_model}/${appConfig.whisper_device})`
+        : appConfig.stt_provider;
+      document.getElementById("cfg-llm").textContent = appConfig.llm_provider;
+      document.getElementById("cfg-pdf").textContent = appConfig.pdf_ready ? "Siap (LibreOffice OK)" : "LibreOffice belum terpasang";
+      if (appConfig.demo_mode) document.getElementById("demo-badge").classList.remove("hidden");
+
+      pegawaiList = await api("/api/pegawai");
+      populatePegawaiForm();
+
+      document.getElementById("page-login").style.display = "none";
+      document.getElementById("app-shell").style.display = "flex";
+      document.getElementById("f-tanggal").value = new Date().toISOString().slice(0, 10);
+      lucide.createIcons();
+      await loadDashboard();
+
+      // lanjutkan pantauan bila ada proses yang masih berjalan di server
+      try {
+        const meetings = await api("/api/meetings");
+        const running = meetings.find(m => m.status === "diproses");
+        if (running) watchProgress(running.id);
+      } catch (e) {}
+    }
+
+    if (localStorage.getItem("notasi_token")) enterApp();
+
+    function pegawaiOptionsHtml() {
+      return pegawaiList.map(p => `<option value="${p.id}">${escapeHtml(p.nama)} — ${escapeHtml(p.jabatan)}</option>`).join("");
+    }
+    function pesertaChecklistHtml(cls) {
+      return pegawaiList.map(p => `
+        <label class="flex items-center gap-2 text-sm p-2 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
+          <input type="checkbox" class="${cls}" value="${p.id}">
+          <span class="flex-1">${escapeHtml(p.nama)} <span class="text-gray-400 text-xs">(${escapeHtml(p.jabatan)})</span></span>
+        </label>`).join("");
+    }
+    function populatePegawaiForm() {
+      const opts = pegawaiOptionsHtml();
+      document.getElementById("f-pimpinan").innerHTML = opts;
+      document.getElementById("f-notulis").innerHTML = opts;
+      document.getElementById("f-peserta-list").innerHTML = pesertaChecklistHtml("peserta-check");
+    }
+
+    // ============================================================
+    // NAVIGASI
+    // ============================================================
+    const pageTitles = {
+      dashboard: "Dashboard", buat: "Buat Notulensi", arsip: "Arsip Notulensi",
+      preview: "Pratinjau Notula", editor: "Editor Notula", statistik: "Statistik", pengaturan: "Pengaturan",
+    };
+
+    function showPage(id) {
+      document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+      document.getElementById("page-" + id).classList.add("active");
+      document.getElementById("page-heading").textContent = pageTitles[id] || id;
+      document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+      const nav = document.querySelector('[data-nav="' + id + '"]');
+      if (nav) nav.classList.add("active");
+      document.getElementById("share-menu").classList.add("hidden");
+
+      if (id === "buat") { activeProcess ? showProgressView() : resetBuatForm(); }
+      if (id === "arsip") loadArsip();
+      if (id === "statistik") loadDashboard(true);
+      if (id === "dashboard") loadDashboard();
+      if (id === "pengaturan") loadPengaturanPage();
+    }
+
+    function resetBuatForm() {
+      document.getElementById("buat-form").classList.remove("hidden");
+      document.getElementById("buat-progress").classList.add("hidden");
+      document.getElementById("buat-hasil").classList.add("hidden");
+      materiFiles = [];
+      renderMateriList();
+    }
+    function showProgressView() {
+      document.getElementById("buat-form").classList.add("hidden");
+      document.getElementById("buat-progress").classList.remove("hidden");
+      document.getElementById("buat-hasil").classList.add("hidden");
+    }
+    function showHasilView(detail) {
+      document.getElementById("buat-form").classList.add("hidden");
+      document.getElementById("buat-progress").classList.add("hidden");
+      document.getElementById("buat-hasil").classList.remove("hidden");
+      renderHasil(detail);
+    }
+    function forceNewForm() { resetBuatForm(); }
+
+    // ============================================================
+    // DASHBOARD & STATISTIK
+    // ============================================================
+    function renderBarChart(containerId, dataByMonth) {
+      const el = document.getElementById(containerId);
+      el.innerHTML = "";
+      const entries = Object.entries(dataByMonth);
+      if (entries.length === 0) {
+        el.innerHTML = '<p class="text-sm text-gray-400 self-end">Belum ada data rapat.</p>';
+        return;
+      }
+      const max = Math.max(...entries.map(([, v]) => v), 1);
+      entries.slice(-7).forEach(([month, count]) => {
+        const pct = Math.round((count / max) * 100);
+        const label = month === "unknown" ? "-" : month.slice(5, 7) + "/" + month.slice(2, 4);
+        el.innerHTML += `
+          <div class="flex-1 flex flex-col items-center gap-1 justify-end h-full">
+            <span class="text-xs text-gray-500">${count}</span>
+            <div class="w-full bg-blue-500 rounded-t" style="height:${Math.max(pct, 4)}%"></div>
+            <span class="text-xs text-gray-500">${label}</span>
+          </div>`;
+      });
+    }
+
+    // ============================================================
+    // PENGATURAN MODE AI (admin-only)
+    // ============================================================
+    function tampilkanPesanPengaturan(msg, ok) {
+      const el = document.getElementById("pengaturan-msg");
+      el.textContent = msg;
+      el.className = "text-sm rounded-lg px-4 py-2 " + (ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700");
+      el.classList.remove("hidden");
+    }
+
+    async function loadPengaturanPage() {
+      if (!currentUser || currentUser.role !== "admin") {
+        document.getElementById("pengaturan-admin").classList.add("hidden");
+        return;
+      }
+      document.getElementById("pengaturan-admin").classList.remove("hidden");
+      try {
+        const s = await api("/api/settings");
+        document.getElementById("set-stt").value = s.stt_provider;
+        document.getElementById("set-llm").value = s.llm_provider;
+        document.getElementById("set-whisper-model").value = s.whisper_local_model;
+        document.getElementById("set-ollama-model").value = s.ollama_model;
+        document.getElementById("set-openai-key-status").textContent = s.openai_api_key_set
+          ? `Tersimpan (${s.openai_api_key_masked}) - isi ulang untuk mengganti`
+          : "Belum diisi";
+      } catch (err) {
+        tampilkanPesanPengaturan("Gagal memuat pengaturan: " + err.message, false);
+      }
+    }
+
+    async function refreshStatusMesinAI() {
+      appConfig = await api("/api/config");
+      document.getElementById("cfg-stt").textContent = appConfig.whisper_model
+        ? `${appConfig.stt_provider} (${appConfig.whisper_model}/${appConfig.whisper_device})`
+        : appConfig.stt_provider;
+      document.getElementById("cfg-llm").textContent = appConfig.llm_provider;
+    }
+
+    async function terapkanModeAI(mode) {
+      const payloads = {
+        demo: { stt_provider: "demo", llm_provider: "demo" },
+        gratis: { stt_provider: "local", llm_provider: "ollama" },
+        berbayar: { stt_provider: "openai", llm_provider: "openai" },
+      };
+      try {
+        await api("/api/settings", { method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payloads[mode]) });
+        tampilkanPesanPengaturan("Mode AI diterapkan.", true);
+        await refreshStatusMesinAI();
+        await loadPengaturanPage();
+      } catch (err) {
+        tampilkanPesanPengaturan("Gagal mengganti mode: " + err.message, false);
+      }
+    }
+
+    async function simpanPengaturanLanjutan() {
+      const payload = {
+        stt_provider: document.getElementById("set-stt").value,
+        llm_provider: document.getElementById("set-llm").value,
+        whisper_local_model: document.getElementById("set-whisper-model").value,
+        ollama_model: document.getElementById("set-ollama-model").value,
+      };
+      const key = document.getElementById("set-openai-key").value.trim();
+      if (key) payload.openai_api_key = key;
+      try {
+        await api("/api/settings", { method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload) });
+        document.getElementById("set-openai-key").value = "";
+        tampilkanPesanPengaturan("Setelan lanjutan disimpan.", true);
+        await refreshStatusMesinAI();
+        await loadPengaturanPage();
+      } catch (err) {
+        tampilkanPesanPengaturan("Gagal menyimpan: " + err.message, false);
+      }
+    }
+
+    async function loadDashboard(statistikOnly = false) {
+      try {
+        const stats = await api("/api/dashboard/stats");
+        if (!statistikOnly) {
+          document.getElementById("stat-total-value").textContent = stats.total_rapat;
+          document.getElementById("stat-month-value").textContent = stats.notulensi_bulan_ini;
+          document.getElementById("stat-arsip-value").textContent = stats.total_arsip;
+          renderBarChart("chart-bulanan", stats.grafik_per_bulan);
+
+          const meetings = await api("/api/meetings");
+          const recentEl = document.getElementById("recent-list");
+          if (meetings.length === 0) {
+            recentEl.innerHTML = '<p class="text-sm text-gray-400">Belum ada rapat yang didokumentasikan.</p>';
+          } else {
+            recentEl.innerHTML = meetings.slice(0, 5).map(m => `
+              <div class="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50">
+                <div>
+                  <p class="text-sm font-medium text-gray-800">${escapeHtml(m.judul_rapat)}</p>
+                  <p class="text-xs text-gray-500">${tglSingkat(m.tanggal)} • ${escapeHtml(m.lokasi || "-")}</p>
+                </div>
+                <span class="px-3 py-1 text-xs rounded-full font-medium ${statusBadge(m.status)}">${statusLabel(m.status)}</span>
+              </div>`).join("");
+          }
+        } else {
+          document.getElementById("st-total").textContent = stats.total_rapat;
+          document.getElementById("st-arsip").textContent = stats.total_arsip;
+          renderBarChart("chart-bulanan-2", stats.grafik_per_bulan);
+        }
+      } catch (err) { console.error(err); }
+    }
+
+    function statusBadge(status) {
+      return { selesai: "bg-green-100 text-green-700", diproses: "bg-blue-100 text-blue-700",
+               menunggu: "bg-yellow-100 text-yellow-700", gagal: "bg-red-100 text-red-700" }[status] || "bg-gray-100 text-gray-700";
+    }
+    function statusLabel(status) {
+      return { selesai: "Selesai", diproses: "Diproses", menunggu: "Menunggu", gagal: "Gagal" }[status] || status;
+    }
+
+    // ============================================================
+    // DRAG & DROP AUDIO
+    // ============================================================
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("f-audio");
+    dropzone.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault(); dropzone.classList.remove("dragover");
+      if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; updateDropzoneLabel(); }
+    });
+    fileInput.addEventListener("change", updateDropzoneLabel);
+    function updateDropzoneLabel() {
+      if (fileInput.files.length) {
+        const f = fileInput.files[0];
+        document.getElementById("dropzone-filename").textContent = `${f.name} (${(f.size/1024/1024).toFixed(1)} MB)`;
+        document.getElementById("dropzone-empty").classList.add("hidden");
+        document.getElementById("dropzone-filled").classList.remove("hidden");
+      }
+    }
+
+    // ============================================================
+    // MATERI RAPAT (multi-file, dipilih sebelum submit)
+    // ============================================================
+    let materiFiles = [];
+    document.getElementById("f-materi").addEventListener("change", (e) => {
+      materiFiles = materiFiles.concat(Array.from(e.target.files));
+      e.target.value = "";
+      renderMateriList();
+    });
+    function renderMateriList() {
+      document.getElementById("f-materi-list").innerHTML = materiFiles.map((f, i) => `
+        <li class="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
+          <span class="text-gray-700 truncate">${escapeHtml(f.name)} <span class="text-gray-400">(${(f.size/1024).toFixed(0)} KB)</span></span>
+          <button type="button" onclick="hapusMateriTerpilih(${i})" class="text-red-500 hover:text-red-700 ml-2">&times;</button>
+        </li>`).join("");
+    }
+    function hapusMateriTerpilih(i) {
+      materiFiles.splice(i, 1);
+      renderMateriList();
+    }
+
+    // ============================================================
+    // SUBMIT: buat rapat -> mulai proses background -> pantau progres
+    // ============================================================
+    document.getElementById("meeting-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById("form-error");
+      errEl.classList.add("hidden");
+
+      if (!fileInput.files.length) {
+        errEl.textContent = "Silakan unggah berkas audio terlebih dahulu.";
+        errEl.classList.remove("hidden"); return;
+      }
+      const pesertaIds = Array.from(document.querySelectorAll(".peserta-check:checked")).map(c => parseInt(c.value));
+      if (pesertaIds.length === 0) {
+        errEl.textContent = "Pilih minimal satu peserta rapat.";
+        errEl.classList.remove("hidden"); return;
+      }
+
+      const formData = new FormData();
+      formData.append("unit_kerja", document.getElementById("f-unit-kerja").value);
+      formData.append("judul_rapat", document.getElementById("f-judul").value);
+      formData.append("tanggal", document.getElementById("f-tanggal").value);
+      formData.append("waktu_mulai", document.getElementById("f-waktu-mulai").value);
+      formData.append("waktu_selesai", document.getElementById("f-waktu-selesai").value);
+      formData.append("lokasi", document.getElementById("f-lokasi").value);
+      formData.append("agenda", document.getElementById("f-agenda").value);
+      formData.append("catatan_notulis", document.getElementById("f-catatan-notulis").value);
+      formData.append("pimpinan_id", document.getElementById("f-pimpinan").value);
+      formData.append("notulis_id", document.getElementById("f-notulis").value);
+      formData.append("peserta_ids", JSON.stringify(pesertaIds));
+      formData.append("audio", fileInput.files[0]);
+      materiFiles.forEach(f => formData.append("materi_files", f));
+
+      showProgressView();
+      setRing(3);
+      document.getElementById("stage-text").textContent = "Mengunggah berkas audio ke server...";
+      document.getElementById("progress-error").classList.add("hidden");
+
+      try {
+        const meeting = await api("/api/meetings", { method: "POST", body: formData });
+        currentMeetingId = meeting.id;
+        currentMeetingTitle = meeting.judul_rapat;
+        await api(`/api/meetings/${meeting.id}/process`, { method: "POST" });
+        watchProgress(meeting.id);
+      } catch (err) {
+        showProgressError(err.message);
+      }
+    });
+
+    // ============================================================
+    // PROGRESS RING + KATA-KATA BERGILIR + INDIKATOR GLOBAL
+    // ============================================================
+    const RING_C = 464.96;       // keliling lingkaran besar (2*pi*74)
+    const MINI_C = 62.83;        // keliling lingkaran mini header (2*pi*10)
+    const FUN_MESSAGES = [
+      "Mendengarkan rekaman dengan saksama...",
+      "Mencatat poin demi poin pembahasan...",
+      "Memilah bagian yang paling penting...",
+      "Menandai keputusan-keputusan rapat...",
+      "Mencari siapa penanggung jawabnya...",
+      "Merangkum tanpa mengurangi makna...",
+      "Menyusun kalimat agar rapi dibaca...",
+      "Memastikan tidak ada yang terlewat...",
+      "Merapikan daftar tindak lanjut...",
+      "Menyeduh kopi virtual untuk si AI...",
+      "Mengetik lebih cepat dari notulis mana pun...",
+      "Sedikit lagi, sedang finishing touch...",
+    ];
+    let funIdx = 0;
+
+    function setRing(pct) {
+      pct = Math.max(0, Math.min(100, pct || 0));
+      document.getElementById("ring-fg").style.strokeDashoffset = RING_C * (1 - pct / 100);
+      document.getElementById("ring-percent").textContent = pct + "%";
+    }
+
+    function startFunMessages() {
+      stopFunMessages();
+      const el = document.getElementById("fun-message");
+      funIdx = 0;
+      el.textContent = FUN_MESSAGES[0];
+      funTimer = setInterval(() => {
+        el.classList.add("fade");
+        setTimeout(() => {
+          funIdx = (funIdx + 1) % FUN_MESSAGES.length;
+          el.textContent = FUN_MESSAGES[funIdx];
+          el.classList.remove("fade");
+        }, 450);
+      }, 2600);
+    }
+    function stopFunMessages() { if (funTimer) { clearInterval(funTimer); funTimer = null; } }
+
+    function updateGlobalIndicator(pct) {
+      const btn = document.getElementById("global-process");
+      const ring = document.getElementById("mini-ring-fg");
+      const label = document.getElementById("global-process-label");
+      if (activeProcess) {
+        btn.classList.remove("hidden"); btn.classList.add("flex");
+        const p = Math.max(0, Math.min(100, pct || 0));
+        ring.style.strokeDashoffset = MINI_C * (1 - p / 100);
+        ring.setAttribute("stroke", "#3B82F6");
+        label.textContent = p + "%";
+        label.className = "text-xs font-semibold text-blue-700";
+        btn.title = "Proses sedang berjalan — klik untuk melihat";
+      } else if (processDone) {
+        btn.classList.remove("hidden"); btn.classList.add("flex");
+        ring.style.strokeDashoffset = 0;
+        ring.setAttribute("stroke", "#22C55E");
+        label.textContent = "Selesai ✓";
+        label.className = "text-xs font-semibold text-green-700";
+        btn.title = "Proses selesai — klik untuk membuka hasil";
+      } else {
+        btn.classList.add("hidden"); btn.classList.remove("flex");
+      }
+    }
+
+    function gotoActiveProcess() {
+      if (activeProcess) { showPage("buat"); showProgressView(); }
+      else if (processDone) {
+        const id = processDone; processDone = null; updateGlobalIndicator();
+        api(`/api/meetings/${id}`).then(d => {
+          currentMeetingId = id; currentMeetingTitle = d.judul_rapat;
+          showPage("buat"); showHasilView(d);
+        }).catch(err => alert(err.message));
+      }
+    }
+
+    function stopWatch() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      stopFunMessages();
+    }
+
+    function showProgressError(msg) {
+      const el = document.getElementById("progress-error");
+      el.textContent = "Gagal memproses: " + msg;
+      el.classList.remove("hidden");
+      stopFunMessages();
+      document.getElementById("fun-message").textContent = "Proses terhenti.";
+    }
+
+    function watchProgress(id) {
+      activeProcess = id; processDone = null;
+      currentMeetingId = id;
+      updateGlobalIndicator(0);
+      startFunMessages();
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(async () => {
+        try {
+          const p = await api(`/api/meetings/${id}/progress`);
+          setRing(p.progress);
+          document.getElementById("stage-text").textContent = p.progress_stage || "";
+          updateGlobalIndicator(p.progress);
+
+          if (p.status === "selesai") {
+            stopWatch();
+            setRing(100);
+            activeProcess = null;
+            const detail = await api(`/api/meetings/${id}`);
+            currentMeetingTitle = detail.judul_rapat;
+            if (document.getElementById("page-buat").classList.contains("active")) {
+              processDone = null; updateGlobalIndicator();
+              showHasilView(detail);
+            } else {
+              processDone = id; updateGlobalIndicator();
+            }
+            loadDashboard();
+          } else if (p.status === "gagal") {
+            stopWatch();
+            activeProcess = null; processDone = null; updateGlobalIndicator();
+            showProgressError(p.progress_stage || "Terjadi kesalahan pada server");
+          }
+        } catch (e) { /* gangguan jaringan sesaat: biarkan poll berikutnya mencoba lagi */ }
+      }, 1500);
+    }
+
+    // ============================================================
+    // RENDER HASIL (editor)
+    // ============================================================
+    function renderHasil(detail) {
+      document.getElementById("hasil-transkripsi").value = detail.transkripsi || "";
+      document.getElementById("hasil-ringkasan").innerHTML = detail.ringkasan.map((point) => `
+        <li class="flex items-start gap-2">
+          <span class="text-blue-500 mt-0.5">&bull;</span>
+          <span contenteditable="true" class="flex-1 outline-none focus:bg-blue-50 rounded px-1">${escapeHtml(point)}</span>
+        </li>`).join("");
+      document.getElementById("hasil-keputusan").innerHTML = detail.keputusan.map((point) => `
+        <li class="flex items-start gap-2">
+          <input type="checkbox" checked class="w-4 h-4 mt-1 text-blue-500 rounded">
+          <span contenteditable="true" class="flex-1 outline-none focus:bg-blue-50 rounded px-1">${escapeHtml(point)}</span>
+        </li>`).join("");
+      document.getElementById("hasil-tindaklanjut").innerHTML = detail.tindak_lanjut.map((item, i) => `
+        <tr class="border-b border-gray-100">
+          <td class="py-3 pr-4">${i + 1}</td>
+          <td class="py-3 pr-4">${escapeHtml(item.deskripsi)}</td>
+          <td class="py-3 pr-4">${escapeHtml(item.penanggung_jawab || "-")}</td>
+          <td class="py-3 pr-4">${escapeHtml(item.deadline || "-")}</td>
+          <td class="py-3">
+            <select onchange="updateActionStatus(${item.id}, this.value)"
+                    class="px-2 py-1 rounded-full text-xs font-medium border-0 ${statusPillClass(item.status)}">
+              <option value="Pending" ${item.status === "Pending" ? "selected" : ""}>Pending</option>
+              <option value="In Progress" ${item.status === "In Progress" ? "selected" : ""}>In Progress</option>
+              <option value="Done" ${item.status === "Done" ? "selected" : ""}>Done</option>
+            </select>
+          </td>
+        </tr>`).join("");
+      renderBuktiGrid(detail.dokumentasi || []);
+      lucide.createIcons();
+    }
+
+    function statusPillClass(status) {
+      return { "Pending": "bg-blue-100 text-blue-700", "In Progress": "bg-yellow-100 text-yellow-700",
+               "Done": "bg-green-100 text-green-700" }[status] || "bg-gray-100 text-gray-700";
+    }
+
+    async function updateActionStatus(itemId, newStatus) {
+      try {
+        await api(`/api/action-items/${itemId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus }),
+        });
+      } catch (err) { alert("Gagal memperbarui status: " + err.message); }
+    }
+
+    async function simpanSunting() {
+      if (!currentMeetingId) return;
+      const ringkasan = Array.from(document.querySelectorAll("#hasil-ringkasan li span[contenteditable]")).map(s => s.textContent.trim()).filter(Boolean);
+      const keputusan = Array.from(document.querySelectorAll("#hasil-keputusan li span[contenteditable]")).map(s => s.textContent.trim()).filter(Boolean);
+      try {
+        await api(`/api/meetings/${currentMeetingId}/summary`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ringkasan, keputusan }),
+        });
+        alert("Perubahan tersimpan.");
+      } catch (err) { alert("Gagal menyimpan: " + err.message); }
+    }
+
+    // ============================================================
+    // EXPORT Word / PDF
+    // ============================================================
+    async function exportFile(type) {
+      if (!currentMeetingId) return;
+      const label = type === "pdf" ? "PDF" : "Word";
+      try {
+        const res = await api(`/api/meetings/${currentMeetingId}/export/${type}`);
+        const blob = await res.blob();
+        if (!blob || blob.size === 0) throw new Error("Berkas yang diterima kosong.");
+
+        const judul = (currentMeetingTitle || "Rapat").replace(/[\\/:*?"<>|]/g, "-");
+        const filename = `Notula - ${judul}.${type === "pdf" ? "pdf" : "docx"}`;
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.rel = "noopener";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+
+        // PENTING: jangan revoke seketika. Beberapa peramban membatalkan unduhan
+        // bila object URL dicabut sebelum unduhan sempat dimulai — inilah sebab
+        // berkas terbentuk di server tetapi tidak pernah muncul di peramban.
+        setTimeout(() => {
+          a.remove();
+          URL.revokeObjectURL(url);
+        }, 60000);
+      } catch (err) {
+        alert(`Gagal export ${label}:\n\n` + err.message);
+      }
+    }
+
+    // ============================================================
+    // BUKTI / DOKUMENTASI
+    // ============================================================
+    function renderBuktiGrid(dokumentasiList) {
+      document.getElementById("bukti-grid").innerHTML = dokumentasiList.map(d => `
+        <div class="relative group">
+          <img src="${d.url}" class="w-full h-24 object-cover rounded-lg border border-gray-200">
+          <button onclick="hapusBukti(${d.id})" class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+        </div>`).join("");
+    }
+
+    document.getElementById("f-bukti").addEventListener("change", async (e) => {
+      if (!currentMeetingId || !e.target.files.length) return;
+      const statusEl = document.getElementById("bukti-status");
+      statusEl.textContent = "Mengunggah...";
+      const formData = new FormData();
+      Array.from(e.target.files).forEach(f => formData.append("files", f));
+      try {
+        await api(`/api/meetings/${currentMeetingId}/bukti`, { method: "POST", body: formData });
+        const detail = await api(`/api/meetings/${currentMeetingId}`);
+        renderBuktiGrid(detail.dokumentasi || []);
+        statusEl.textContent = "Berhasil diunggah.";
+        setTimeout(() => statusEl.textContent = "", 2000);
+      } catch (err) {
+        statusEl.textContent = "";
+        alert("Gagal mengunggah bukti: " + err.message);
+      }
+      e.target.value = "";
+    });
+
+    async function hapusBukti(id) {
+      if (!confirm("Hapus foto ini?")) return;
+      try {
+        await api(`/api/bukti/${id}`, { method: "DELETE" });
+        const detail = await api(`/api/meetings/${currentMeetingId}`);
+        renderBuktiGrid(detail.dokumentasi || []);
+      } catch (err) { alert("Gagal menghapus: " + err.message); }
+    }
+
+    // ============================================================
+    // ARSIP (CRUD: Read/Update/Delete + Print + Share + Export)
+    // ============================================================
+    async function loadArsip() {
+      try {
+        const meetings = await api("/api/meetings");
+        const tbody = document.getElementById("arsip-list");
+        const emptyEl = document.getElementById("arsip-empty");
+        if (meetings.length === 0) { tbody.innerHTML = ""; emptyEl.classList.remove("hidden"); return; }
+        emptyEl.classList.add("hidden");
+        tbody.innerHTML = meetings.map(m => {
+          let aksi;
+          if (m.status === "selesai") {
+            aksi = `
+              <button onclick="openPreview(${m.id})" class="text-indigo-600 text-xs font-medium hover:underline mr-2">Lihat</button>
+              <button onclick="openEditor(${m.id})" class="text-amber-600 text-xs font-medium hover:underline mr-2">Edit</button>
+              <button onclick="quickExport(${m.id}, '${escapeHtml(m.judul_rapat).replace(/'/g, "\\'")}', 'docx')" class="text-green-600 text-xs font-medium hover:underline mr-2">Word</button>
+              <button onclick="quickExport(${m.id}, '${escapeHtml(m.judul_rapat).replace(/'/g, "\\'")}', 'pdf')" class="text-red-500 text-xs font-medium hover:underline mr-2">PDF</button>
+              <button onclick="deleteMeeting(${m.id})" class="text-gray-400 text-xs font-medium hover:text-red-600 hover:underline">Hapus</button>`;
+          } else if (m.status === "diproses") {
+            aksi = `<button onclick="watchAndShow(${m.id})" class="text-blue-600 text-xs font-medium hover:underline">Pantau (${m.progress || 0}%)</button>`;
+          } else if (m.status === "gagal") {
+            aksi = `
+              <button onclick="reprocess(${m.id})" class="text-blue-600 text-xs font-medium hover:underline mr-2">Proses Ulang</button>
+              <button onclick="openEditor(${m.id})" class="text-amber-600 text-xs font-medium hover:underline mr-2">Edit</button>
+              <button onclick="deleteMeeting(${m.id})" class="text-gray-400 text-xs font-medium hover:text-red-600 hover:underline">Hapus</button>`;
+          } else {
+            aksi = `
+              <button onclick="reprocess(${m.id})" class="text-blue-600 text-xs font-medium hover:underline mr-2">Proses</button>
+              <button onclick="deleteMeeting(${m.id})" class="text-gray-400 text-xs font-medium hover:text-red-600 hover:underline">Hapus</button>`;
+          }
+          return `
+            <tr class="border-t border-gray-100">
+              <td class="p-4">${escapeHtml(m.judul_rapat)}</td>
+              <td class="p-4">${tglSingkat(m.tanggal)}</td>
+              <td class="p-4">${escapeHtml(m.lokasi || "-")}</td>
+              <td class="p-4"><span class="px-3 py-1 text-xs rounded-full font-medium ${statusBadge(m.status)}">${statusLabel(m.status)}</span></td>
+              <td class="p-4 whitespace-nowrap">${aksi}</td>
+            </tr>`;
+        }).join("");
+      } catch (err) { console.error(err); }
+    }
+
+    function quickExport(id, judul, type) {
+      currentMeetingId = id; currentMeetingTitle = judul;
+      exportFile(type);
+    }
+
+    function watchAndShow(id) {
+      watchProgress(id);
+      showPage("buat");
+      showProgressView();
+    }
+
+    async function reprocess(id) {
+      try {
+        await api(`/api/meetings/${id}/process`, { method: "POST" });
+        watchAndShow(id);
+      } catch (err) { alert("Gagal memulai proses: " + err.message); }
+    }
+
+    async function deleteMeeting(id) {
+      if (!confirm("Hapus notula ini beserta seluruh berkas terkait? Tindakan ini tidak bisa dibatalkan.")) return;
+      try {
+        await api(`/api/meetings/${id}`, { method: "DELETE" });
+        loadArsip();
+        loadDashboard();
+        if (document.getElementById("page-preview").classList.contains("active") && currentMeetingId === id) {
+          showPage("arsip");
+        }
+      } catch (err) { alert("Gagal menghapus: " + err.message); }
+    }
+
+    // ============================================================
+    // PRATINJAU (Read berformat template) + PRINT + SHARE
+    // ============================================================
+    async function openPreview(id) {
+      try {
+        const d = await api(`/api/meetings/${id}`);
+        previewData = d; currentMeetingId = id; currentMeetingTitle = d.judul_rapat;
+        renderPreview(d);
+        showPage("preview");
+        lucide.createIcons();
+      } catch (err) { alert("Gagal membuka notula: " + err.message); }
+    }
+
+    function renderPreview(d) {
+      const kepala = pegawaiList.find(p => (p.jabatan || "").toLowerCase().includes("kepala bps"));
+      const kota = (d.unit_kerja || appConfig.unit_kerja_default || "Sanggau").split(" ").pop();
+
+      // tabel peserta berpasangan 2 kolom
+      const pairs = [];
+      for (let i = 0; i < d.peserta.length; i += 2) pairs.push([d.peserta[i], d.peserta[i + 1] || null]);
+      const pesertaRows = pairs.map(([a, b]) => `
+        <tr>
+          <td>${escapeHtml(a ? a.nama : "")}</td><td>${escapeHtml(a ? a.jabatan : "")}</td>
+          <td>${escapeHtml(b ? b.nama : "")}</td><td>${escapeHtml(b ? b.jabatan : "")}</td>
+        </tr>`).join("") || `<tr><td colspan="4" class="text-center text-gray-400">Tidak ada peserta tercatat</td></tr>`;
+
+      const pendahuluan = (() => {
+        let t = `Pada hari ${tglLengkap(d.tanggal)}`;
+        if (d.waktu_mulai) t += `, pukul ${jamWIB(d.waktu_mulai)}`;
+        t += `, telah dilaksanakan <b>${escapeHtml(d.judul_rapat)}</b>.`;
+        if (d.pimpinan) t += ` Rapat ini dipimpin langsung oleh <b>${escapeHtml(d.pimpinan.nama)}</b> (${escapeHtml(d.pimpinan.jabatan)}).`;
+        const dur = durasiJam(d.waktu_mulai, d.waktu_selesai);
+        if (dur !== "-") {
+          t += ` Kegiatan rapat berlangsung selama ${dur}`;
+          if (d.waktu_selesai) t += ` dan berakhir pada pukul ${jamWIB(d.waktu_selesai)}`;
+          t += `.`;
+        }
+        return t;
+      })();
+
+      const pembahasan = d.ringkasan.length
+        ? d.ringkasan.map((p, i) => `<p class="mb-2 text-sm"><b>${i + 1}.</b> ${escapeHtml(p)}</p>`).join("")
+        : `<p class="text-sm text-gray-400">Tidak ada poin pembahasan tercatat.</p>`;
+
+      const keputusan = d.keputusan.length
+        ? `<ul class="list-disc pl-6 text-sm space-y-1">${d.keputusan.map(k => `<li>${escapeHtml(k)}</li>`).join("")}</ul>`
+        : `<p class="text-sm text-gray-400">Tidak ada keputusan tercatat.</p>`;
+
+      const tindakLanjut = d.tindak_lanjut.length ? `
+        <table class="mt-2"><thead><tr><th>Action Item</th><th>Penanggung Jawab</th><th>Deadline</th><th>Status</th></tr></thead>
+        <tbody>${d.tindak_lanjut.map(t => `
+          <tr><td>${escapeHtml(t.deskripsi)}</td><td>${escapeHtml(t.penanggung_jawab || "-")}</td>
+          <td>${escapeHtml(t.deadline || "-")}</td><td>${escapeHtml(t.status)}</td></tr>`).join("")}</tbody></table>`
+        : `<p class="text-sm text-gray-400">Tidak ada tindak lanjut teridentifikasi.</p>`;
+
+      const dokumentasi = (d.dokumentasi || []).length ? `
+        <div class="mt-8" style="page-break-before: always;">
+          <h3 class="text-center font-bold text-sm mb-4">DOKUMENTASI KEGIATAN ${escapeHtml(d.judul_rapat.toUpperCase())}</h3>
+          <div class="grid grid-cols-2 gap-4">
+            ${d.dokumentasi.map(f => `
+              <div class="text-center">
+                <img src="${f.url}" class="w-full max-h-56 object-contain border border-gray-300 rounded">
+                ${f.keterangan ? `<p class="text-xs italic mt-1">${escapeHtml(f.keterangan)}</p>` : ""}
+              </div>`).join("")}
+          </div>
+        </div>` : "";
+
+      document.getElementById("preview-doc").innerHTML = `
+        <div class="text-center border-b-2 border-gray-800 pb-3 mb-6">
+          <p class="font-bold italic text-base">${escapeHtml(appConfig.nama_instansi || "")}</p>
+          <p class="text-[11px] text-gray-600 mt-1">${escapeHtml(appConfig.alamat_instansi || "")}</p>
+        </div>
+        <h2 class="text-center font-bold text-base mb-5">NOTULA KEGIATAN ${escapeHtml(d.judul_rapat.toUpperCase())}</h2>
+        <table class="mb-5">
+          <tr><th style="width:15%">Unit Kerja</th><td style="width:35%">${escapeHtml(d.unit_kerja || "-")}</td>
+              <th style="width:15%">Tanggal</th><td style="width:35%">${tglSingkat(d.tanggal)}</td></tr>
+          <tr><th>Topik</th><td>${escapeHtml(d.judul_rapat)}</td>
+              <th>Tempat</th><td>${escapeHtml(d.lokasi || "-")}</td></tr>
+        </table>
+        <p class="font-bold text-sm mb-1">Peserta Rapat</p>
+        <table class="mb-6"><thead><tr><th>Nama</th><th>Jabatan</th><th>Nama</th><th>Jabatan</th></tr></thead>
+          <tbody>${pesertaRows}</tbody></table>
+        <h3 class="font-bold text-sm mb-2">Pendahuluan</h3>
+        <p class="text-sm mb-5 leading-relaxed">${pendahuluan}</p>
+        <h3 class="font-bold text-sm mb-2">Pembahasan Rapat</h3>
+        <div class="mb-5">${pembahasan}</div>
+        <h3 class="font-bold text-sm mb-2">Keputusan Rapat</h3>
+        <div class="mb-5">${keputusan}</div>
+        <h3 class="font-bold text-sm mb-2">Tindak Lanjut</h3>
+        <div class="mb-8">${tindakLanjut}</div>
+        <p class="text-right text-sm mb-4">${escapeHtml(kota)}, ${tglSingkat(d.tanggal)}</p>
+        <div class="flex justify-between text-sm" style="min-height:120px">
+          <div>
+            <p>Mengetahui,</p>
+            <p>Kepala ${escapeHtml(d.unit_kerja || appConfig.unit_kerja_default || "")}</p>
+            <p class="mt-20 font-bold underline">${escapeHtml(kepala ? kepala.nama : "-")}</p>
+          </div>
+          <div class="text-left">
+            <p>&nbsp;</p>
+            <p>Notulis:</p>
+            <p class="mt-20 font-bold underline">${escapeHtml(d.notulis ? d.notulis.nama : "-")}</p>
+          </div>
+        </div>
+        ${dokumentasi}`;
+    }
+
+    // ---- Share ----
+    function toggleShareMenu(e) {
+      e.stopPropagation();
+      document.getElementById("share-menu").classList.toggle("hidden");
+    }
+    document.addEventListener("click", (e) => {
+      const menu = document.getElementById("share-menu");
+      if (!menu.classList.contains("hidden") && !menu.contains(e.target)) menu.classList.add("hidden");
+    });
+
+    function buildShareText() {
+      if (!previewData) return "";
+      const d = previewData;
+      let t = `*NOTULA: ${d.judul_rapat}*\n${tglLengkap(d.tanggal)} • ${d.lokasi || "-"}\n\n*Ringkasan:*\n`;
+      t += d.ringkasan.map((r, i) => `${i + 1}. ${r}`).join("\n");
+      if (d.keputusan.length) t += `\n\n*Keputusan:*\n` + d.keputusan.map(k => `• ${k}`).join("\n");
+      if (d.tindak_lanjut.length) t += `\n\n*Tindak Lanjut:*\n` + d.tindak_lanjut.map(a => `• ${a.deskripsi} (PIC: ${a.penanggung_jawab || "-"}, deadline: ${a.deadline || "-"})`).join("\n");
+      t += `\n\n_Dibuat otomatis oleh NOTASI_`;
+      return t;
+    }
+
+    function shareWA() {
+      window.open("https://wa.me/?text=" + encodeURIComponent(buildShareText()), "_blank");
+    }
+    function shareEmail() {
+      const subject = "Notula: " + (previewData ? previewData.judul_rapat : "");
+      window.location.href = "mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(buildShareText().replace(/\*/g, ""));
+    }
+    async function copyRingkasan() {
+      try {
+        await navigator.clipboard.writeText(buildShareText().replace(/\*/g, ""));
+        alert("Teks ringkasan disalin ke clipboard.");
+      } catch (e) { alert("Gagal menyalin. Peramban tidak mengizinkan akses clipboard."); }
+    }
+    async function shareFileNative() {
+      if (!currentMeetingId) return;
+      try {
+        const res = await api(`/api/meetings/${currentMeetingId}/export/docx`);
+        const blob = await res.blob();
+        const file = new File([blob], `Notula - ${currentMeetingTitle}.docx`, { type: blob.type });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: file.name });
+        } else {
+          alert("Peramban ini tidak mendukung berbagi berkas langsung.\nGunakan tombol Export Word lalu bagikan berkasnya secara manual, atau gunakan opsi WhatsApp/Email.");
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") alert("Gagal membagikan: " + err.message);
+      }
+    }
+
+
+    // ============================================================
+    // HALAMAN EDITOR: sunting SELURUH isi rapat (metadata, transkrip,
+    // pembahasan, keputusan, tindak lanjut) + unggah foto dokumentasi
+    // ============================================================
+    let editorData = null;
+    let edPesertaIds = [];
+
+    async function openEditor(id) {
+      try {
+        const d = await api(`/api/meetings/${id}`);
+        editorData = d;
+        currentMeetingId = id;
+        currentMeetingTitle = d.judul_rapat;
+        edPesertaIds = d.peserta.map(p => p.id);
+
+        document.getElementById("ed-kop-nama").textContent = appConfig.nama_instansi || "";
+        document.getElementById("ed-kop-alamat").textContent = appConfig.alamat_instansi || "";
+        document.getElementById("ed-judul-head").textContent = (d.judul_rapat || "").toUpperCase();
+
+        document.getElementById("ed-unit-kerja").value = d.unit_kerja || "";
+        document.getElementById("ed-judul").value = d.judul_rapat || "";
+        document.getElementById("ed-tanggal").value = d.tanggal || "";
+        document.getElementById("ed-lokasi").value = d.lokasi || "";
+        document.getElementById("ed-waktu-mulai").value = d.waktu_mulai || "";
+        document.getElementById("ed-waktu-selesai").value = d.waktu_selesai || "";
+        document.getElementById("ed-agenda").value = d.agenda || "";
+        document.getElementById("ed-catatan-notulis").value = d.catatan_notulis || "";
+
+        const opts = pegawaiOptionsHtml();
+        document.getElementById("ed-pimpinan").innerHTML = opts;
+        document.getElementById("ed-notulis").innerHTML = opts;
+        if (d.pimpinan) document.getElementById("ed-pimpinan").value = d.pimpinan.id;
+        if (d.notulis) document.getElementById("ed-notulis").value = d.notulis.id;
+
+        document.getElementById("ed-judul").oninput = (e) => {
+          document.getElementById("ed-judul-head").textContent = e.target.value.toUpperCase();
+        };
+
+        // picker peserta
+        document.getElementById("ed-peserta-picker").innerHTML = pegawaiList.map(p => `
+          <label class="flex items-center gap-2 text-sm p-2 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
+            <input type="checkbox" class="ed-peserta-check" value="${p.id}" ${edPesertaIds.includes(p.id) ? "checked" : ""}
+                   onchange="edSyncPeserta()">
+            <span class="flex-1">${escapeHtml(p.nama)} <span class="text-gray-400 text-xs">(${escapeHtml(p.jabatan)})</span></span>
+          </label>`).join("");
+        renderEdPesertaTabel();
+
+        // isi rapat
+        document.getElementById("ed-transkripsi").value = d.transkripsi || "";
+        renderEdList("ed-ringkasan", d.ringkasan, "Poin pembahasan...");
+        renderEdList("ed-keputusan", d.keputusan, "Keputusan rapat...");
+        renderEdActions(d.tindak_lanjut);
+        renderEdBukti(d.dokumentasi || []);
+
+        document.getElementById("editor-saved").classList.add("hidden");
+        showPage("editor");
+        lucide.createIcons();
+      } catch (err) {
+        alert("Gagal membuka editor: " + err.message);
+      }
+    }
+
+    function toggleEdPeserta() {
+      document.getElementById("ed-peserta-picker").classList.toggle("hidden");
+    }
+
+    function edSyncPeserta() {
+      edPesertaIds = Array.from(document.querySelectorAll(".ed-peserta-check:checked")).map(c => parseInt(c.value));
+      renderEdPesertaTabel();
+    }
+
+    function renderEdPesertaTabel() {
+      const list = pegawaiList.filter(p => edPesertaIds.includes(p.id));
+      const pairs = [];
+      for (let i = 0; i < list.length; i += 2) pairs.push([list[i], list[i + 1] || null]);
+      document.getElementById("ed-peserta-tabel").innerHTML = pairs.map(([a, b]) => `
+        <tr>
+          <td>${escapeHtml(a ? a.nama : "")}</td><td>${escapeHtml(a ? a.jabatan : "")}</td>
+          <td>${escapeHtml(b ? b.nama : "")}</td><td>${escapeHtml(b ? b.jabatan : "")}</td>
+        </tr>`).join("") ||
+        `<tr><td colspan="4" class="text-center text-gray-400">Belum ada peserta — klik "Ubah daftar peserta"</td></tr>`;
+    }
+
+    // ---- daftar poin (pembahasan / keputusan) ----
+    function edLineHtml(text, placeholder) {
+      return `
+        <div class="flex items-start gap-2 group">
+          <span class="text-gray-400 mt-1 text-sm">&bull;</span>
+          <div contenteditable="true" data-placeholder="${placeholder}"
+               class="ed-line flex-1 outline-none text-sm rounded px-2 py-1 border border-transparent hover:border-gray-200 focus:border-blue-300">${escapeHtml(text)}</div>
+          <button onclick="this.parentElement.remove()" title="Hapus poin"
+                  class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-1">&times;</button>
+        </div>`;
+    }
+
+    function renderEdList(containerId, items, placeholder) {
+      const el = document.getElementById(containerId);
+      el.innerHTML = (items && items.length ? items : [""]).map(t => edLineHtml(t, placeholder)).join("");
+    }
+
+    function edAddItem(containerId) {
+      const el = document.getElementById(containerId);
+      const ph = containerId === "ed-ringkasan" ? "Poin pembahasan..." : "Keputusan rapat...";
+      el.insertAdjacentHTML("beforeend", edLineHtml("", ph));
+      const lines = el.querySelectorAll(".ed-line");
+      lines[lines.length - 1].focus();
+    }
+
+    function edCollect(containerId) {
+      return Array.from(document.querySelectorAll(`#${containerId} .ed-line`))
+        .map(e => e.textContent.trim()).filter(Boolean);
+    }
+
+    // ---- tabel tindak lanjut ----
+    function edActionRowHtml(item) {
+      const st = (item && item.status) || "Pending";
+      const sel = (v) => st === v ? "selected" : "";
+      return `
+        <tr>
+          <td><input class="ed-in ed-act-desk" type="text" value="${escapeHtml(item ? item.deskripsi : "")}" placeholder="Uraian tindak lanjut..."></td>
+          <td><input class="ed-in ed-act-pic" type="text" value="${escapeHtml(item ? (item.penanggung_jawab || "") : "")}" placeholder="Nama PIC"></td>
+          <td><input class="ed-in ed-act-dl" type="text" value="${escapeHtml(item ? (item.deadline || "") : "")}" placeholder="YYYY-MM-DD"></td>
+          <td><select class="ed-in ed-act-st">
+            <option ${sel("Pending")}>Pending</option>
+            <option ${sel("In Progress")}>In Progress</option>
+            <option ${sel("Done")}>Done</option>
+          </select></td>
+          <td class="text-center"><button onclick="this.closest('tr').remove()" class="text-gray-300 hover:text-red-500" title="Hapus baris">&times;</button></td>
+        </tr>`;
+    }
+
+    function renderEdActions(items) {
+      const el = document.getElementById("ed-tindaklanjut");
+      el.innerHTML = (items && items.length ? items : [null]).map(edActionRowHtml).join("");
+    }
+
+    function edAddAction() {
+      document.getElementById("ed-tindaklanjut").insertAdjacentHTML("beforeend", edActionRowHtml(null));
+    }
+
+    function edCollectActions() {
+      return Array.from(document.querySelectorAll("#ed-tindaklanjut tr")).map(tr => ({
+        deskripsi: tr.querySelector(".ed-act-desk").value.trim(),
+        penanggung_jawab: tr.querySelector(".ed-act-pic").value.trim() || "Belum ditentukan",
+        deadline: tr.querySelector(".ed-act-dl").value.trim() || "Belum ditentukan",
+        status: tr.querySelector(".ed-act-st").value,
+      })).filter(a => a.deskripsi);
+    }
+
+    // ---- foto dokumentasi (form yang sebelumnya hanya ada di halaman hasil) ----
+    function renderEdBukti(list) {
+      document.getElementById("ed-bukti-grid").innerHTML = list.map(d => `
+        <div class="relative group">
+          <img src="${d.url}" class="w-full h-24 object-cover rounded-lg border border-gray-200">
+          <button onclick="edHapusBukti(${d.id})" title="Hapus foto"
+                  class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+        </div>`).join("");
+    }
+
+    async function edUploadBukti(files) {
+      if (!currentMeetingId || !files.length) return;
+      const statusEl = document.getElementById("ed-bukti-status");
+      statusEl.textContent = "Mengunggah...";
+      const fd = new FormData();
+      Array.from(files).forEach(f => fd.append("files", f));
+      try {
+        await api(`/api/meetings/${currentMeetingId}/bukti`, { method: "POST", body: fd });
+        const d = await api(`/api/meetings/${currentMeetingId}`);
+        renderEdBukti(d.dokumentasi || []);
+        statusEl.textContent = "Foto tersimpan.";
+        setTimeout(() => statusEl.textContent = "", 2000);
+      } catch (err) {
+        statusEl.textContent = "";
+        alert("Gagal mengunggah foto: " + err.message);
+      }
+    }
+
+    async function edHapusBukti(id) {
+      if (!confirm("Hapus foto ini?")) return;
+      try {
+        await api(`/api/bukti/${id}`, { method: "DELETE" });
+        const d = await api(`/api/meetings/${currentMeetingId}`);
+        renderEdBukti(d.dokumentasi || []);
+      } catch (err) { alert("Gagal menghapus: " + err.message); }
+    }
+
+    document.getElementById("ed-bukti-drop").addEventListener("click", () => document.getElementById("ed-bukti-input").click());
+    document.getElementById("ed-bukti-input").addEventListener("change", (e) => {
+      edUploadBukti(e.target.files);
+      e.target.value = "";
+    });
+    document.getElementById("ed-bukti-drop").addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.currentTarget.classList.add("border-purple-500", "bg-purple-50");
+    });
+    document.getElementById("ed-bukti-drop").addEventListener("dragleave", (e) => {
+      e.currentTarget.classList.remove("border-purple-500", "bg-purple-50");
+    });
+    document.getElementById("ed-bukti-drop").addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.currentTarget.classList.remove("border-purple-500", "bg-purple-50");
+      edUploadBukti(e.dataTransfer.files);
+    });
+
+    // ---- SIMPAN SEMUA ----
+    async function saveEditor() {
+      if (!currentMeetingId) return false;
+      try {
+        // a) metadata rapat
+        await api(`/api/meetings/${currentMeetingId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            unit_kerja: document.getElementById("ed-unit-kerja").value,
+            judul_rapat: document.getElementById("ed-judul").value,
+            tanggal: document.getElementById("ed-tanggal").value,
+            lokasi: document.getElementById("ed-lokasi").value,
+            waktu_mulai: document.getElementById("ed-waktu-mulai").value,
+            waktu_selesai: document.getElementById("ed-waktu-selesai").value,
+            agenda: document.getElementById("ed-agenda").value,
+            catatan_notulis: document.getElementById("ed-catatan-notulis").value,
+            pimpinan_id: parseInt(document.getElementById("ed-pimpinan").value),
+            notulis_id: parseInt(document.getElementById("ed-notulis").value),
+            peserta_ids: edPesertaIds,
+          }),
+        });
+
+        // b) isi rapat (transkrip, pembahasan, keputusan, tindak lanjut)
+        const updated = await api(`/api/meetings/${currentMeetingId}/content`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transkripsi: document.getElementById("ed-transkripsi").value,
+            ringkasan: edCollect("ed-ringkasan"),
+            keputusan: edCollect("ed-keputusan"),
+            tindak_lanjut: edCollectActions(),
+          }),
+        });
+
+        editorData = updated;
+        currentMeetingTitle = updated.judul_rapat;
+        const savedEl = document.getElementById("editor-saved");
+        savedEl.classList.remove("hidden");
+        setTimeout(() => savedEl.classList.add("hidden"), 2500);
+        loadDashboard();
+        return true;
+      } catch (err) {
+        alert("Gagal menyimpan: " + err.message);
+        return false;
+      }
+    }
+
+    async function saveEditorThenPreview() {
+      if (await saveEditor()) openPreview(currentMeetingId);
+    }
+
+    lucide.createIcons();
+  </script>
+</body>
+</html>

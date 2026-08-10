@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+backend/venv/
+
+# Secrets
+backend/.env
+
+# Runtime data (generated, not source)
+backend/notasi.db
+backend/uploads/
+backend/exports/
+
+# Graphify generated cache
+graphify-out/cache/
+graphify-out/converted/
+
+# Local Claude settings
+.claude/settings.local.json
+
+# OS
+Thumbs.db
+.DS_Store

@@ -1,0 +1,19 @@
+# Dependensi TAMBAHAN, hanya diperlukan jika Anda mengaktifkan mode lokal
+# (STT_PROVIDER=local di .env) agar tidak bergantung pada OpenAI API.
+#
+# Install dengan:
+#   pip install -r requirements-local-ai.txt
+#
+# Catatan:
+# - Versi >= 1.1 diperlukan untuk BatchedInferencePipeline (2-4x lebih cepat).
+#   Bila memakai versi lebih lama, aplikasi tetap jalan tanpa fitur batched.
+# - Model diunduh otomatis saat pertama kali dipakai:
+#     tiny ~75MB | base ~145MB | small ~480MB | medium ~1.5GB | large-v3 ~3GB
+#   Default aplikasi ini: "small" (seimbang untuk CPU).
+# - Untuk LLM_PROVIDER=ollama TIDAK perlu pip install tambahan — cukup instal
+#   aplikasi Ollama (https://ollama.com), lalu: ollama pull llama3.2:3b
+#
+# Punya GPU NVIDIA? Set WHISPER_LOCAL_DEVICE=cuda di .env untuk percepatan
+# 10-30x (butuh CUDA + cuDNN terpasang).
+
+faster-whisper>=1.1.0

@@ -125,7 +125,7 @@ app = FastAPI(title=settings.APP_NAME)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # batasi ke domain internal instansi saat produksi
+    allow_origins=settings.CORS_ORIGINS_LIST,  # "*" default; set CORS_ORIGINS env saat produksi
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

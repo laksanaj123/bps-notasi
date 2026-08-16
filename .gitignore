@@ -5,6 +5,14 @@ backend/venv/
 
 # Secrets
 backend/.env
+.env
+
+# Netlify CLI local state
+.netlify/
+
+# Docker Compose persistent data / backups (VPS deployment)
+/data/
+/backups/
 
 # Runtime data (generated, not source)
 backend/notasi.db

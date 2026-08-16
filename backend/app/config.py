@@ -19,6 +19,16 @@ class Settings:
     # --- Database ---
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'notasi.db'}")
 
+    # --- CORS: daftar origin yang diizinkan, dipisah koma. Default "*" untuk
+    # dev lokal; batasi ke domain instansi saat produksi (lihat README §10). ---
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
+
+    @property
+    def CORS_ORIGINS_LIST(self) -> list[str]:
+        if self.CORS_ORIGINS.strip() == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
     # --- Penyimpanan berkas ---
     UPLOAD_DIR: Path = BASE_DIR / "uploads"
     BUKTI_DIR: Path = BASE_DIR / "uploads" / "bukti"

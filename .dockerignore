@@ -1,0 +1,14 @@
+**/__pycache__
+**/*.pyc
+backend/venv
+backend/notasi.db
+backend/notasi.db.bak-*
+backend/uploads
+backend/exports
+backend/.env
+backend/migrasi_kredensial_*.txt
+backend/_backup_before_rag_removal_*
+.git
+.claude
+graphify-out
+data

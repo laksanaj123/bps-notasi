@@ -1,0 +1,27 @@
+FROM python:3.12-slim
+
+# Image ringan khusus deploy demo (Render free tier): tanpa faster-whisper/
+# Ollama karena STT_PROVIDER=demo & LLM_PROVIDER=demo tidak butuh itu.
+# LibreOffice tetap disertakan supaya fitur export PDF tetap berfungsi.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libreoffice-writer \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /srv
+
+COPY backend/requirements.txt backend/
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+COPY backend/app backend/app
+COPY backend/scripts backend/scripts
+COPY frontend frontend
+
+WORKDIR /srv/backend
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8000}/api/config || exit 1
+
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

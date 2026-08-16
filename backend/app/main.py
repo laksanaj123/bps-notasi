@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 import uuid
 from datetime import date
@@ -15,13 +16,18 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .config import settings
 from .database import Base, engine, get_db, SessionLocal
-from .auth import authenticate_user, create_access_token, get_current_user, hash_password
+from .auth import (
+    authenticate_user, create_access_token, get_current_user, hash_password,
+    require_roles, assert_can_write_meeting,
+)
 from .data.pegawai_seed import PEGAWAI_SEED
 from .services.transcription import transcribe_audio, preload_stt_model, reset_local_model
 from .services.document_extract import extract_text, UnsupportedMaterialError
 from .services.summarizer import summarize_transcript
 from .services.docx_export import build_notulensi_docx
 from .services.pdf_export import convert_docx_to_pdf, find_soffice
+from .utils.storage import _save_upload
+from .routers.rapat import router as rapat_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -33,30 +39,64 @@ def _auto_migrate():
     dari versi aplikasi sebelumnya akan kekurangan kolom baru dan menyebabkan
     error 'no such column' saat proses/export. Fungsi ini memperbaikinya
     otomatis tanpa menghapus data."""
-    needed = {
-        "unit_kerja": "TEXT",
-        "waktu_mulai": "TEXT",
-        "waktu_selesai": "TEXT",
-        "pimpinan_id": "INTEGER",
-        "notulis_id": "INTEGER",
-        "peserta_ids": "TEXT DEFAULT '[]'",
-        "progress": "INTEGER DEFAULT 0",
-        "progress_stage": "TEXT DEFAULT ''",
-        "catatan_notulis": "TEXT",
+    needed_by_table = {
+        "meetings": {
+            "unit_kerja": "TEXT",
+            "waktu_mulai": "TEXT",
+            "waktu_selesai": "TEXT",
+            "pimpinan_id": "INTEGER",
+            "notulis_id": "INTEGER",
+            "peserta_ids": "TEXT DEFAULT '[]'",
+            "progress": "INTEGER DEFAULT 0",
+            "progress_stage": "TEXT DEFAULT ''",
+            "catatan_notulis": "TEXT",
+            # --- Alur rapat baru (routers/rapat.py) - lihat models.py ---
+            "lifecycle_status": "TEXT",
+            "jenis_media": "TEXT",
+            "waktu_mulai_aktual": "DATETIME",
+            "waktu_selesai_aktual": "DATETIME",
+            "alasan_pembatalan": "TEXT",
+        },
+        "users": {
+            "is_active": "INTEGER DEFAULT 1",
+            # --- Merge Pegawai->User (lihat models.py & backend/scripts/
+            # migrate_pegawai_to_user.py) ---
+            "jabatan": "TEXT",
+            "urutan": "INTEGER DEFAULT 0",
+            "must_reset_password": "INTEGER DEFAULT 0",
+        },
+        "meeting_peserta": {
+            "user_id": "INTEGER",
+        },
     }
     with engine.connect() as conn:
-        rows = conn.execute(sa_text("PRAGMA table_info(meetings)")).fetchall()
-        if not rows:
-            return  # tabel belum ada; create_all sudah membuatnya dengan skema baru
-        existing = {r[1] for r in rows}
-        for col, ddl in needed.items():
-            if col not in existing:
-                conn.execute(sa_text(f"ALTER TABLE meetings ADD COLUMN {col} {ddl}"))
-                print(f"[NOTASI] Migrasi: kolom '{col}' ditambahkan ke tabel meetings.")
+        for table, needed in needed_by_table.items():
+            rows = conn.execute(sa_text(f"PRAGMA table_info({table})")).fetchall()
+            if not rows:
+                continue
+            existing = {r[1] for r in rows}
+            for col, ddl in needed.items():
+                if col not in existing:
+                    conn.execute(sa_text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+                    print(f"[NOTASI] Migrasi: kolom '{col}' ditambahkan ke tabel {table}.")
         conn.commit()
 
 
 _auto_migrate()
+
+
+def _migrate_final_ke_diarsipkan():
+    """Status FINAL tidak lagi jadi status istirahat (finalisasi kini langsung
+    ke DIARSIPKAN, lihat rapat_lifecycle.py) - rapat lama yang masih tersangkut
+    di FINAL dari sebelum perubahan ini dipindah otomatis, sekali saja."""
+    with engine.connect() as conn:
+        result = conn.execute(sa_text("UPDATE meetings SET lifecycle_status = 'diarsipkan' WHERE lifecycle_status = 'final'"))
+        if result.rowcount:
+            print(f"[NOTASI] Migrasi: {result.rowcount} rapat berstatus FINAL dipindah ke DIARSIPKAN.")
+        conn.commit()
+
+
+_migrate_final_ke_diarsipkan()
 
 
 def _load_settings_overrides():
@@ -91,6 +131,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Alur rapat baru (lihat RANCANGAN_UX_ALUR_RAPAT_NOTASI_v1.md) - endpoint
+# lama di file ini tidak diubah, semua rute baru ada di routers/rapat.py.
+app.include_router(rapat_router)
+
 
 @app.on_event("startup")
 def seed_data():
@@ -107,11 +151,27 @@ def seed_data():
         db.commit()
         print(f"[NOTASI] Akun default -> {settings.DEFAULT_ADMIN_USERNAME} / {settings.DEFAULT_ADMIN_PASSWORD}")
 
-    if db.query(models.Pegawai).count() == 0:
+    # Direktori pegawai (dulu tabel Pegawai terpisah) kini adalah User berrole
+    # pegawai - lihat backend/scripts/migrate_pegawai_to_user.py untuk migrasi
+    # dari instalasi lama. Untuk instalasi baru yang benar-benar kosong (belum
+    # ada satupun pegawai), seed langsung sebagai akun User supaya aplikasi
+    # tetap bisa dipakai tanpa migrasi manual.
+    if db.query(models.User).filter(models.User.role == models.RoleEnum.pegawai).count() == 0:
         for i, (nama, jabatan) in enumerate(PEGAWAI_SEED):
-            db.add(models.Pegawai(nama=nama, jabatan=jabatan, urutan=i))
+            username = re.sub(r"[^a-z0-9]+", ".", nama.lower()).strip(".") or f"pegawai{i}"
+            base_username, n = username, 1
+            while db.query(models.User).filter(models.User.username == username).first():
+                n += 1
+                username = f"{base_username}{n}"
+            db.add(models.User(
+                nama=nama, username=username, email=None,
+                password_hash=hash_password(uuid.uuid4().hex[:12]),
+                role=models.RoleEnum.pegawai, jabatan=jabatan, urutan=i,
+                must_reset_password=True,
+            ))
         db.commit()
-        print(f"[NOTASI] {len(PEGAWAI_SEED)} data pegawai berhasil dimuat.")
+        print(f"[NOTASI] {len(PEGAWAI_SEED)} akun pegawai berhasil dimuat "
+              "(instalasi baru - kredensial acak, wajib reset saat login pertama).")
 
     # Rapat yang terhenti di status 'diproses' karena server dimatikan -> tandai gagal
     stale = db.query(models.Meeting).filter(models.Meeting.status == models.StatusEnum.diproses).all()
@@ -134,7 +194,7 @@ def seed_data():
 
 
 def _get_kepala_bps(db: Session):
-    return db.query(models.Pegawai).filter(models.Pegawai.jabatan.ilike("%Kepala BPS%")).first()
+    return db.query(models.User).filter(models.User.jabatan.ilike("%Kepala BPS%")).first()
 
 
 # ============================================================
@@ -170,9 +230,7 @@ def _mask_key(key: str) -> str:
 
 
 @app.get("/api/settings", response_model=schemas.AppSettingsOut)
-def get_ai_settings(current_user: models.User = Depends(get_current_user)):
-    if current_user.role != models.RoleEnum.admin:
-        raise HTTPException(status_code=403, detail="Hanya admin yang dapat melihat pengaturan mode AI")
+def get_ai_settings(current_user: models.User = Depends(require_roles("admin"))):
     return schemas.AppSettingsOut(
         stt_provider=settings.STT_PROVIDER,
         llm_provider=settings.LLM_PROVIDER,
@@ -185,11 +243,10 @@ def get_ai_settings(current_user: models.User = Depends(get_current_user)):
 
 @app.patch("/api/settings", response_model=schemas.AppSettingsOut)
 def update_ai_settings(payload: schemas.AppSettingsUpdate, db: Session = Depends(get_db),
-                        current_user: models.User = Depends(get_current_user)):
-    if current_user.role != models.RoleEnum.admin:
-        raise HTTPException(status_code=403, detail="Hanya admin yang dapat mengubah pengaturan mode AI")
-
+                        current_user: models.User = Depends(require_roles("admin"))):
     data = payload.model_dump(exclude_unset=True)
+    if "openai_api_key" in data and current_user.role != models.RoleEnum.admin:
+        raise HTTPException(status_code=403, detail="Hanya admin yang dapat mengubah OpenAI API Key")
     if "stt_provider" in data and data["stt_provider"] not in VALID_STT_PROVIDERS:
         raise HTTPException(status_code=400, detail=f"stt_provider harus salah satu dari {VALID_STT_PROVIDERS}")
     if "llm_provider" in data and data["llm_provider"] not in VALID_LLM_PROVIDERS:
@@ -238,6 +295,8 @@ def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
     user = authenticate_user(db, payload.username, payload.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Username atau kata sandi salah")
+    if user.is_active is False:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Akun ini telah dinonaktifkan, hubungi administrator")
     token = create_access_token({"sub": user.username, "role": user.role.value})
     return schemas.Token(access_token=token)
 
@@ -249,14 +308,17 @@ def me(current_user: models.User = Depends(get_current_user)):
 
 @app.post("/api/auth/register", response_model=schemas.UserOut)
 def register(payload: schemas.UserCreate, db: Session = Depends(get_db),
-             current_user: models.User = Depends(get_current_user)):
-    if current_user.role != models.RoleEnum.admin:
-        raise HTTPException(status_code=403, detail="Hanya admin yang dapat menambah pengguna")
+             current_user: models.User = Depends(require_roles("admin"))):
     if db.query(models.User).filter(models.User.username == payload.username).first():
         raise HTTPException(status_code=400, detail="Username sudah digunakan")
+    try:
+        role = models.RoleEnum(payload.role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Role tidak valid")
     user = models.User(
         nama=payload.nama, username=payload.username, email=payload.email,
-        password_hash=hash_password(payload.password), role=models.RoleEnum(payload.role),
+        password_hash=hash_password(payload.password), role=role,
+        jabatan=payload.jabatan,
     )
     db.add(user)
     db.commit()
@@ -264,38 +326,94 @@ def register(payload: schemas.UserCreate, db: Session = Depends(get_db),
     return user
 
 
-# ============================================================
-#  PEGAWAI
-# ============================================================
-@app.get("/api/pegawai", response_model=List[schemas.PegawaiOut])
-def list_pegawai(db: Session = Depends(get_db),
-                  current_user: models.User = Depends(get_current_user)):
-    return db.query(models.Pegawai).order_by(models.Pegawai.urutan).all()
+@app.get("/api/users", response_model=List[schemas.UserAdminOut])
+def list_users(db: Session = Depends(get_db),
+               current_user: models.User = Depends(require_roles("admin"))):
+    """Daftar lengkap (admin-only) - halaman Kelola Pengguna. Untuk mengisi
+    pilihan Pimpinan Rapat/Notulis/Peserta, pakai GET /api/users/directory."""
+    return db.query(models.User).order_by(models.User.urutan, models.User.nama).all()
+
+
+@app.get("/api/users/directory", response_model=List[schemas.UserDirectoryOut])
+def list_users_directory(db: Session = Depends(get_db),
+                          current_user: models.User = Depends(get_current_user)):
+    """Directory ringan (id/nama/jabatan/role), boleh diakses semua pengguna
+    login - dipakai mengisi pilihan Pimpinan Rapat, Notulis, dan Peserta.
+    Menggantikan /api/pegawai lama (lihat models.py Pegawai - sudah legacy)."""
+    return db.query(models.User).filter(models.User.is_active == True).order_by(  # noqa: E712
+        models.User.urutan, models.User.nama
+    ).all()
+
+
+@app.patch("/api/users/{user_id}", response_model=schemas.UserAdminOut)
+def update_user(user_id: int, payload: schemas.UserUpdate, db: Session = Depends(get_db),
+                 current_user: models.User = Depends(require_roles("admin"))):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
+
+    if payload.is_active is False and user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Tidak dapat menonaktifkan akun Anda sendiri")
+
+    becoming_inactive_or_non_admin = (
+        (payload.is_active is False) or (payload.role is not None and payload.role != "admin")
+    )
+    if user.role == models.RoleEnum.admin and becoming_inactive_or_non_admin:
+        other_active_admins = db.query(models.User).filter(
+            models.User.role == models.RoleEnum.admin,
+            models.User.is_active == True,  # noqa: E712
+            models.User.id != user.id,
+        ).count()
+        if other_active_admins == 0:
+            raise HTTPException(status_code=400, detail="Tidak dapat menonaktifkan/mengubah role admin aktif terakhir")
+
+    if payload.role is not None:
+        try:
+            user.role = models.RoleEnum(payload.role)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Role tidak valid")
+    if payload.nama is not None:
+        user.nama = payload.nama
+    if payload.email is not None:
+        user.email = payload.email
+    if payload.jabatan is not None:
+        user.jabatan = payload.jabatan
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db),
+                 current_user: models.User = Depends(require_roles("admin"))):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Tidak dapat menghapus akun Anda sendiri")
+    if user.role == models.RoleEnum.admin:
+        other_active_admins = db.query(models.User).filter(
+            models.User.role == models.RoleEnum.admin,
+            models.User.is_active == True,  # noqa: E712
+            models.User.id != user.id,
+        ).count()
+        if other_active_admins == 0:
+            raise HTTPException(status_code=400, detail="Tidak dapat menghapus admin aktif terakhir")
+
+    # Lepaskan referensi notula yang pernah dibuat pengguna ini, bukan ikut
+    # dihapus - notula tetap ada di arsip, hanya "pembuat"-nya jadi kosong.
+    db.query(models.Meeting).filter(models.Meeting.user_id == user_id).update({"user_id": None})
+    db.delete(user)
+    db.commit()
+    return {"ok": True}
 
 
 # ============================================================
 #  MEETINGS - Create + Upload
 # ============================================================
-def _save_upload(file: UploadFile, dest_dir: Path, max_mb: int) -> Path:
-    ext = Path(file.filename).suffix or ".bin"
-    fname = f"{uuid.uuid4().hex}{ext}"
-    dest = dest_dir / fname
-    max_bytes = max_mb * 1024 * 1024
-    total = 0
-    with open(dest, "wb") as buf:
-        while True:
-            chunk = file.file.read(1024 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > max_bytes:
-                buf.close()
-                dest.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail=f"Ukuran berkas melebihi batas maksimum {max_mb} MB")
-            buf.write(chunk)
-    return dest
-
-
 @app.post("/api/meetings", response_model=schemas.MeetingOut)
 def create_meeting(
     judul_rapat: str = Form(...),
@@ -391,11 +509,11 @@ def _run_ai_pipeline(meeting_id: int):
             transcript_text = transcribe_audio(audio_path, progress_cb=_stt_progress)
             _set_progress(db, meeting, 60, "Transkripsi selesai, menyiapkan analisis")
         peserta_nama = ", ".join(
-            p.nama for p in db.query(models.Pegawai).filter(
-                models.Pegawai.id.in_(json.loads(meeting.peserta_ids or "[]"))
+            p.nama for p in db.query(models.User).filter(
+                models.User.id.in_(json.loads(meeting.peserta_ids or "[]"))
             ).all()
         )
-        pimpinan = db.query(models.Pegawai).filter(models.Pegawai.id == meeting.pimpinan_id).first()
+        pimpinan = db.query(models.User).filter(models.User.id == meeting.pimpinan_id).first()
         materi_list = db.query(models.MeetingMaterial).filter(
             models.MeetingMaterial.meeting_id == meeting.id
         ).all()
@@ -454,6 +572,7 @@ def process_meeting(meeting_id: int, db: Session = Depends(get_db),
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Rapat tidak ditemukan")
+    assert_can_write_meeting(current_user, meeting)
     if meeting.status == models.StatusEnum.diproses:
         raise HTTPException(status_code=400, detail="Rapat ini sedang diproses")
 
@@ -493,10 +612,10 @@ def _to_detail(db: Session, meeting: models.Meeting) -> schemas.MeetingDetailOut
     docs = db.query(models.Documentation).filter(models.Documentation.meeting_id == meeting.id).all()
     materi = db.query(models.MeetingMaterial).filter(models.MeetingMaterial.meeting_id == meeting.id).all()
 
-    pimpinan = db.query(models.Pegawai).filter(models.Pegawai.id == meeting.pimpinan_id).first()
-    notulis = db.query(models.Pegawai).filter(models.Pegawai.id == meeting.notulis_id).first()
-    peserta = db.query(models.Pegawai).filter(
-        models.Pegawai.id.in_(json.loads(meeting.peserta_ids or "[]"))
+    pimpinan = db.query(models.User).filter(models.User.id == meeting.pimpinan_id).first()
+    notulis = db.query(models.User).filter(models.User.id == meeting.notulis_id).first()
+    peserta = db.query(models.User).filter(
+        models.User.id.in_(json.loads(meeting.peserta_ids or "[]"))
     ).all()
 
     return schemas.MeetingDetailOut(
@@ -526,9 +645,49 @@ def _to_detail(db: Session, meeting: models.Meeting) -> schemas.MeetingDetailOut
     )
 
 
+MEETING_SORT_FIELDS = {
+    "tanggal": models.Meeting.tanggal,
+    "judul_rapat": models.Meeting.judul_rapat,
+    "status": models.Meeting.status,
+    "created_at": models.Meeting.created_at,
+}
+
+
 @app.get("/api/meetings", response_model=List[schemas.MeetingOut])
-def list_meetings(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    return db.query(models.Meeting).order_by(models.Meeting.created_at.desc()).all()
+def list_meetings(q: str = "", status: str = "", date_from: str = "", date_to: str = "",
+                   sort: str = "tanggal", order: str = "desc",
+                   db: Session = Depends(get_db),
+                   current_user: models.User = Depends(get_current_user)):
+    """Daftar rapat untuk halaman Arsip Notula.
+    `q` (opsional) mencari di topik, tempat, dan unit kerja.
+    `status` (opsional) filter status persis (menunggu/diproses/selesai/gagal).
+    `date_from`/`date_to` (opsional, YYYY-MM-DD) filter rentang tanggal rapat.
+    `sort`/`order` menentukan pengurutan; default tanggal rapat terbaru dulu.
+
+    Hanya menampilkan rapat dari wizard lama (lifecycle_status kosong) -
+    rapat dari alur baru (/api/rapat) punya halaman arsip sendiri di Fase 2,
+    supaya kedua model data tidak saling campur di satu daftar."""
+    query = db.query(models.Meeting).filter(models.Meeting.lifecycle_status.is_(None))
+    if q.strip():
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            (models.Meeting.judul_rapat.ilike(like))
+            | (models.Meeting.lokasi.ilike(like))
+            | (models.Meeting.unit_kerja.ilike(like))
+        )
+    if status.strip():
+        try:
+            query = query.filter(models.Meeting.status == models.StatusEnum(status))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Status tidak valid")
+    if date_from.strip():
+        query = query.filter(models.Meeting.tanggal >= date_from.strip())
+    if date_to.strip():
+        query = query.filter(models.Meeting.tanggal <= date_to.strip())
+
+    column = MEETING_SORT_FIELDS.get(sort, models.Meeting.tanggal)
+    query = query.order_by(column.asc() if order == "asc" else column.desc())
+    return query.all()
 
 
 @app.get("/api/meetings/{meeting_id}", response_model=schemas.MeetingDetailOut)
@@ -548,6 +707,7 @@ def update_meeting(meeting_id: int, payload: schemas.MeetingUpdate,
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Rapat tidak ditemukan")
+    assert_can_write_meeting(current_user, meeting)
     data = payload.model_dump(exclude_unset=True)
     if "peserta_ids" in data and data["peserta_ids"] is not None:
         data["peserta_ids"] = json.dumps(data["peserta_ids"])
@@ -564,6 +724,7 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db),
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Rapat tidak ditemukan")
+    assert_can_write_meeting(current_user, meeting)
     if meeting.status == models.StatusEnum.diproses:
         raise HTTPException(status_code=400, detail="Tidak dapat menghapus rapat yang sedang diproses")
 
@@ -588,6 +749,7 @@ def update_summary(meeting_id: int, payload: schemas.SummaryUpdate, db: Session 
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Rapat tidak ditemukan")
+    assert_can_write_meeting(current_user, meeting)
     summary = db.query(models.Summary).filter(models.Summary.meeting_id == meeting_id).first()
     if not summary:
         raise HTTPException(status_code=400, detail="Rapat belum diproses AI")
@@ -608,6 +770,7 @@ def update_meeting_content(meeting_id: int, payload: schemas.MeetingContentUpdat
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Rapat tidak ditemukan")
+    assert_can_write_meeting(current_user, meeting)
 
     # --- Transkripsi ---
     if payload.transkripsi is not None:
@@ -664,6 +827,9 @@ def update_action_item(item_id: int, payload: schemas.ActionItemUpdate, db: Sess
     item = db.query(models.ActionItem).filter(models.ActionItem.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Tindak lanjut tidak ditemukan")
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == item.meeting_id).first()
+    if meeting:
+        assert_can_write_meeting(current_user, meeting)
     for field, value in payload.model_dump(exclude_unset=True).items():
         if field == "status" and value is not None:
             value = models.ActionStatusEnum(value)
@@ -683,6 +849,7 @@ def upload_bukti(meeting_id: int, files: List[UploadFile] = File(...),
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Rapat tidak ditemukan")
+    assert_can_write_meeting(current_user, meeting)
 
     hasil = []
     for f in files:
@@ -706,6 +873,9 @@ def delete_bukti(doc_id: int, db: Session = Depends(get_db),
     doc = db.query(models.Documentation).filter(models.Documentation.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Dokumentasi tidak ditemukan")
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == doc.meeting_id).first()
+    if meeting:
+        assert_can_write_meeting(current_user, meeting)
     (settings.BUKTI_DIR / doc.file_path).unlink(missing_ok=True)
     db.delete(doc)
     db.commit()
@@ -718,6 +888,9 @@ def delete_materi(materi_id: int, db: Session = Depends(get_db),
     m = db.query(models.MeetingMaterial).filter(models.MeetingMaterial.id == materi_id).first()
     if not m:
         raise HTTPException(status_code=404, detail="Materi tidak ditemukan")
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == m.meeting_id).first()
+    if meeting:
+        assert_can_write_meeting(current_user, meeting)
     (settings.MATERI_DIR / m.file_path).unlink(missing_ok=True)
     db.delete(m)
     db.commit()
@@ -739,10 +912,10 @@ def _build_export_docx(db: Session, meeting_id: int) -> tuple:
     transcript = db.query(models.Transcript).filter(models.Transcript.meeting_id == meeting_id).first()
     actions = db.query(models.ActionItem).filter(models.ActionItem.meeting_id == meeting_id).all()
     docs = db.query(models.Documentation).filter(models.Documentation.meeting_id == meeting_id).all()
-    pimpinan = db.query(models.Pegawai).filter(models.Pegawai.id == meeting.pimpinan_id).first()
-    notulis = db.query(models.Pegawai).filter(models.Pegawai.id == meeting.notulis_id).first()
-    peserta = db.query(models.Pegawai).filter(
-        models.Pegawai.id.in_(json.loads(meeting.peserta_ids or "[]"))
+    pimpinan = db.query(models.User).filter(models.User.id == meeting.pimpinan_id).first()
+    notulis = db.query(models.User).filter(models.User.id == meeting.notulis_id).first()
+    peserta = db.query(models.User).filter(
+        models.User.id.in_(json.loads(meeting.peserta_ids or "[]"))
     ).all()
     kepala = _get_kepala_bps(db)
 
@@ -803,17 +976,22 @@ def export_pdf(meeting_id: int, db: Session = Depends(get_db),
 # ============================================================
 @app.get("/api/dashboard/stats", response_model=schemas.DashboardStats)
 def dashboard_stats(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    total_rapat = db.query(models.Meeting).count()
+    # Dashboard ini menyertai wizard lama - rapat dari alur baru (/api/rapat)
+    # dikecualikan di sini juga (lihat catatan di list_meetings) sampai
+    # dashboard/statistik Fase 2 dirancang untuk menggabungkan keduanya.
+    legacy = models.Meeting.lifecycle_status.is_(None)
+    total_rapat = db.query(models.Meeting).filter(legacy).count()
     total_arsip = db.query(models.Archive).count()
 
     today = date.today()
     bulan_ini_prefix = today.strftime("%Y-%m")
     notulensi_bulan_ini = db.query(models.Meeting).filter(
+        legacy,
         models.Meeting.tanggal.like(f"{bulan_ini_prefix}%"),
         models.Meeting.status == models.StatusEnum.selesai,
     ).count()
 
-    rows = db.query(models.Meeting.tanggal).all()
+    rows = db.query(models.Meeting.tanggal).filter(legacy).all()
     counts = {}
     for (tgl,) in rows:
         key = tgl[:7] if tgl else "unknown"
@@ -831,6 +1009,8 @@ def dashboard_stats(db: Session = Depends(get_db), current_user: models.User = D
 # ============================================================
 app.mount("/media/bukti", StaticFiles(directory=str(settings.BUKTI_DIR)), name="bukti")
 app.mount("/media/materi", StaticFiles(directory=str(settings.MATERI_DIR)), name="materi")
+app.mount("/media/dokumen", StaticFiles(directory=str(settings.DOKUMEN_DIR)), name="dokumen")
+app.mount("/media/rekaman", StaticFiles(directory=str(settings.REKAMAN_DIR)), name="rekaman")
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 if FRONTEND_DIR.exists():

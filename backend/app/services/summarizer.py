@@ -36,7 +36,39 @@ keduanya sebagai sumber tambahan yang setara pentingnya dengan transkrip: gabung
 poin-poinnya ke ringkasan/keputusan/tindak lanjut yang relevan, dan pakai untuk
 melengkapi hal yang terlewat atau kurang jelas terdengar di transkrip (mis. nama
 penanggung jawab, deadline, angka/target dari dokumen pendukung, atau keputusan
-yang disebut notulis tapi tidak terucap jelas di rekaman)."""
+yang disebut notulis tapi tidak terucap jelas di rekaman).
+
+Jika ada "Konteks dari dokumen referensi/pedoman", itu BUKAN bagian dari rapat -
+transkrip tetap satu-satunya sumber tentang apa yang benar-benar dibahas/diputuskan.
+Pakai konteks itu HANYA untuk membantu Anda memahami istilah, singkatan, aturan, atau
+angka yang disebut sekilas di transkrip; jangan menambahkan poin ringkasan/keputusan
+yang isinya berasal dari dokumen referensi tapi tidak disinggung di transkrip."""
+
+SYSTEM_PROMPT_RINGKAS = """Anda adalah asisten AI yang bertugas membuat notulensi rapat instansi pemerintah.
+Baca transkrip rapat berikut, lalu hasilkan output HANYA dalam format JSON valid
+(tanpa teks tambahan, tanpa markdown code fence) dengan struktur persis seperti ini:
+
+{
+  "ringkasan": ["poin pembahasan 1", "poin pembahasan 2", ...],
+  "pertanyaan_jawaban": [
+    {"pertanyaan": "...", "jawaban": "..."}
+  ]
+}
+
+Gunakan Bahasa Indonesia formal. "ringkasan" berisi poin-poin pembahasan rapat.
+"pertanyaan_jawaban" berisi sesi tanya-jawab yang terjadi dalam rapat (jika ada) -
+kosongkan array-nya bila tidak ada sesi tanya jawab yang tercatat di transkrip.
+
+Jika ada "Catatan kasar notulis" dan/atau "Materi rapat" pada input, perlakukan
+keduanya sebagai sumber tambahan yang setara pentingnya dengan transkrip: gabungkan
+poin-poinnya ke pembahasan yang relevan, dan pakai untuk melengkapi hal yang
+terlewat atau kurang jelas terdengar di transkrip.
+
+Jika ada "Konteks dari dokumen referensi/pedoman", itu BUKAN bagian dari rapat -
+transkrip tetap satu-satunya sumber tentang apa yang benar-benar dibahas. Pakai
+konteks itu HANYA untuk membantu Anda memahami istilah/aturan/angka yang disebut
+sekilas di transkrip; jangan menambahkan poin pembahasan yang isinya berasal dari
+dokumen referensi tapi tidak disinggung di transkrip."""
 
 
 def _demo_result() -> dict:
@@ -55,6 +87,20 @@ def _demo_result() -> dict:
              "penanggung_jawab": "Belum ditentukan", "deadline": "Belum ditentukan"},
             {"deskripsi": "Melaporkan realisasi anggaran semester berjalan",
              "penanggung_jawab": "Belum ditentukan", "deadline": "Belum ditentukan"},
+        ],
+    }
+
+
+def _demo_result_ringkas() -> dict:
+    return {
+        "ringkasan": [
+            "Progres digitalisasi mencapai 72% dari target tahunan",
+            "Penyerapan anggaran sebesar 58%, masih sesuai rencana semester",
+            "Modul NOTASI diusulkan untuk mulai digunakan bulan depan",
+        ],
+        "pertanyaan_jawaban": [
+            {"pertanyaan": "Kapan modul NOTASI mulai digunakan?",
+             "jawaban": "Diusulkan mulai digunakan bulan depan setelah persiapan selesai."},
         ],
     }
 
@@ -98,13 +144,13 @@ def _extract_json(text: str) -> dict:
     raise RuntimeError(f"Respons model AI bukan JSON valid, tidak bisa diproses. Cuplikan: {cuplikan!r}")
 
 
-def _summarize_openai(transcript_text: str, meeting_context: dict) -> dict:
+def _summarize_openai(transcript_text: str, meeting_context: dict, system_prompt: str = SYSTEM_PROMPT) -> dict:
     from openai import OpenAI
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     response = client.chat.completions.create(
         model=settings.LLM_MODEL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": _build_user_prompt(transcript_text, meeting_context)},
         ],
         response_format={"type": "json_object"},
@@ -113,12 +159,12 @@ def _summarize_openai(transcript_text: str, meeting_context: dict) -> dict:
     return _extract_json(response.choices[0].message.content)
 
 
-def _summarize_ollama(transcript_text: str, meeting_context: dict) -> dict:
+def _summarize_ollama(transcript_text: str, meeting_context: dict, system_prompt: str = SYSTEM_PROMPT) -> dict:
     import requests
     payload = {
         "model": settings.OLLAMA_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": _build_user_prompt(transcript_text, meeting_context)},
         ],
         "format": "json",   # Ollama >= 0.1.29 mendukung mode output JSON
@@ -170,15 +216,38 @@ def _normalize_tindak_lanjut(value) -> list:
     return hasil
 
 
-def summarize_transcript(transcript_text: str, meeting_context: dict) -> dict:
+def _normalize_qa(value) -> list:
+    if not isinstance(value, list):
+        value = [value] if value else []
+    hasil = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        pertanyaan = str(item.get("pertanyaan", "")).strip()
+        jawaban = str(item.get("jawaban", "")).strip()
+        if not pertanyaan and not jawaban:
+            continue
+        hasil.append({"pertanyaan": pertanyaan, "jawaban": jawaban})
+    return hasil
+
+
+def summarize_transcript(transcript_text: str, meeting_context: dict, struktur: str = "lengkap") -> dict:
+    """struktur="lengkap" (default, dipakai alur Buat Notula lama): ringkasan +
+    keputusan + tindak_lanjut. struktur="ringkas" (alur Buat Rapat baru):
+    ringkasan + pertanyaan_jawaban saja."""
+    system_prompt = SYSTEM_PROMPT if struktur == "lengkap" else SYSTEM_PROMPT_RINGKAS
+
     if settings.LLM_PROVIDER == "openai":
-        data = _summarize_openai(transcript_text, meeting_context)
+        data = _summarize_openai(transcript_text, meeting_context, system_prompt)
     elif settings.LLM_PROVIDER == "ollama":
-        data = _summarize_ollama(transcript_text, meeting_context)
+        data = _summarize_ollama(transcript_text, meeting_context, system_prompt)
     else:
-        data = _demo_result()
+        data = _demo_result() if struktur == "lengkap" else _demo_result_ringkas()
 
     data["ringkasan"] = _normalize_list(data.get("ringkasan"))
-    data["keputusan"] = _normalize_list(data.get("keputusan"))
-    data["tindak_lanjut"] = _normalize_tindak_lanjut(data.get("tindak_lanjut"))
+    if struktur == "lengkap":
+        data["keputusan"] = _normalize_list(data.get("keputusan"))
+        data["tindak_lanjut"] = _normalize_tindak_lanjut(data.get("tindak_lanjut"))
+    else:
+        data["pertanyaan_jawaban"] = _normalize_qa(data.get("pertanyaan_jawaban"))
     return data

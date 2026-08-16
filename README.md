@@ -1,4 +1,4 @@
-# NOTASI — Notulensi Otomatis Berbasis Artificial Intelligence
+# NOTASI — Notula Otomatis Berbasis Artificial Intelligence
 
 Sistem lengkap: unggah rekaman rapat → diubah jadi teks (speech-to-text) →
 diringkas otomatis oleh AI (pembahasan, keputusan, tindak lanjut) → bisa
@@ -136,14 +136,14 @@ kembali dengan tombol × yang muncul saat hover.
 
 ## 5. Alur Penggunaan
 
-1. **Buat Notulensi** → isi Unit Kerja/Topik/Tanggal/Tempat/Waktu, pilih
+1. **Buat Notula** → isi Unit Kerja/Topik/Tanggal/Tempat/Waktu, pilih
    **Pimpinan Rapat** dan **Notulis** dari dropdown, centang **Peserta Rapat**
    yang hadir (semua dari daftar pegawai, tidak perlu ketik manual), isi
    agenda, unggah audio → **Proses dengan AI**.
 2. Tinjau & sunting hasil (klik teks ringkasan/keputusan langsung untuk edit) → **Simpan**.
 3. Unggah foto **Bukti Dokumentasi** jika ada.
 4. **Export Word** → dokumen `.docx` lengkap sesuai format resmi langsung terunduh.
-5. Semua rapat tersimpan di **Arsip Notulensi**; rekap tampil di **Dashboard**/**Statistik**.
+5. Semua rapat tersimpan di **Arsip Notula**; rekap tampil di **Dashboard**/**Statistik**.
 
 ## 6. Catatan Sebelum Dipakai Produksi
 
@@ -176,7 +176,7 @@ bergantung pada layanan berbayar pihak ketiga.
   0–100%** dengan kata-kata status yang bergilir, plus **indikator mini di pojok
   kanan atas** yang bisa diklik untuk kembali ke tampilan proses (berubah hijau
   "Selesai ✓" bila proses tuntas saat Anda berada di halaman lain).
-- **CRUD penuh di Arsip Notulensi:** Lihat (pratinjau berformat template resmi
+- **CRUD penuh di Arsip Notula:** Lihat (pratinjau berformat template resmi
   lengkap dengan kop, tabel peserta, dan tanda tangan), Edit (metadata rapat),
   Hapus (beserta seluruh berkas), Proses Ulang untuk rapat yang gagal, tombol
   **Cetak** (print-ready, hanya dokumen yang tercetak), dan **Bagikan**

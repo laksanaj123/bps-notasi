@@ -7,7 +7,7 @@ tanda tangan (Kepala & Notulis), serta lampiran foto dokumentasi kegiatan.
 """
 from pathlib import Path
 from docx import Document
-from docx.shared import Pt, Inches, Cm
+from docx.shared import Pt, Inches, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
@@ -16,12 +16,20 @@ from ..utils.indo_date import (
     format_tanggal_lengkap, format_tanggal_singkat, format_jam, hitung_durasi,
 )
 
+LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "bps_logo.png"
+
 
 def _add_letterhead(doc: Document):
     """Kop surat, dipasang sebagai header halaman agar berulang otomatis
-    di setiap halaman (persis seperti pada template asli)."""
+    di setiap halaman - logo BPS, nama instansi, dan alamat, sesuai
+    format resmi notula BPS Kabupaten Sanggau."""
     header = doc.sections[0].header
-    p1 = header.paragraphs[0]
+    p0 = header.paragraphs[0]
+    p0.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if LOGO_PATH.exists():
+        p0.add_run().add_picture(str(LOGO_PATH), height=Cm(1.6))
+
+    p1 = header.add_paragraph()
     p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run1 = p1.add_run(settings.NAMA_INSTANSI)
     run1.bold = True
@@ -89,8 +97,7 @@ def _peserta_table(doc: Document, peserta_list):
     return table
 
 
-def _pendahuluan_paragraph(doc: Document, meeting, pimpinan):
-    doc.add_heading("Pendahuluan", level=2)
+def build_pendahuluan_text(meeting, pimpinan) -> str:
     tanggal_lengkap = format_tanggal_lengkap(meeting.tanggal)
     jam_mulai = format_jam(meeting.waktu_mulai)
     jam_selesai = format_jam(meeting.waktu_selesai)
@@ -111,7 +118,12 @@ def _pendahuluan_paragraph(doc: Document, meeting, pimpinan):
         if meeting.waktu_selesai:
             text += f" dan berakhir pada pukul {jam_selesai}"
         text += "."
-    doc.add_paragraph(text)
+    return text
+
+
+def _pendahuluan_paragraph(doc: Document, meeting, pimpinan, pendahuluan_text=None):
+    doc.add_heading("Pendahuluan", level=2)
+    doc.add_paragraph(pendahuluan_text or build_pendahuluan_text(meeting, pimpinan))
 
 
 def _pembahasan_section(doc: Document, ringkasan, keputusan):
@@ -128,6 +140,26 @@ def _pembahasan_section(doc: Document, ringkasan, keputusan):
             doc.add_paragraph(point, style="List Bullet")
     else:
         doc.add_paragraph("Tidak ada keputusan yang tercatat.")
+
+
+def _pembahasan_ringkas_section(doc: Document, ringkasan):
+    doc.add_heading("Pembahasan Rapat", level=2)
+    if ringkasan:
+        for i, point in enumerate(ringkasan, start=1):
+            doc.add_paragraph(f"{i}. {point}")
+    else:
+        doc.add_paragraph("Tidak ada poin pembahasan yang tercatat.")
+
+
+def _tanya_jawab_section(doc: Document, pertanyaan_jawaban):
+    doc.add_heading("Pertanyaan dan Jawaban", level=2)
+    if not pertanyaan_jawaban:
+        doc.add_paragraph("Tidak ada tanya jawab yang tercatat.")
+        return
+    for item in pertanyaan_jawaban:
+        p_t = doc.add_paragraph()
+        p_t.add_run(f"T: {item.get('pertanyaan', '')}").bold = True
+        doc.add_paragraph(f"J: {item.get('jawaban', '')}")
 
 
 def _tindak_lanjut_table(doc: Document, tindak_lanjut):
@@ -217,17 +249,33 @@ def _dokumentasi_section(doc: Document, meeting, dokumentasi_files):
 
 
 def build_notulensi_docx(meeting, transcript_text, ringkasan, keputusan, tindak_lanjut,
-                          peserta_list, pimpinan, notulis, kepala, dokumentasi_files, output_path: Path):
+                          peserta_list, pimpinan, notulis, kepala, dokumentasi_files, output_path: Path,
+                          struktur: str = "lengkap", pendahuluan_text: str = None, pertanyaan_jawaban=None):
     doc = Document()
     for section in doc.sections:
-        section.top_margin = Cm(2)
-        section.bottom_margin = Cm(2)
-        section.left_margin = Cm(2.5)
-        section.right_margin = Cm(2.5)
+        section.top_margin = Cm(2.54)
+        section.bottom_margin = Cm(2.54)
+        section.left_margin = Cm(2.54)
+        section.right_margin = Cm(2.54)
 
+    # Times New Roman 12pt & judul hitam tegas - meniru Template_Notula_Rapat.docx
+    # resmi BPS, menggantikan tampilan Calibri default yang terkesan seperti
+    # dokumen buatan AI generik.
     style = doc.styles["Normal"]
-    style.font.name = "Calibri"
-    style.font.size = Pt(11)
+    style.font.name = "Times New Roman"
+    style.font.size = Pt(12)
+
+    heading1 = doc.styles["Heading 1"]
+    heading1.font.name = "Times New Roman"
+    heading1.font.size = Pt(14)
+    heading1.font.bold = True
+    heading1.font.color.rgb = RGBColor(0, 0, 0)
+
+    heading2 = doc.styles["Heading 2"]
+    heading2.font.name = "Times New Roman"
+    heading2.font.size = Pt(12)
+    heading2.font.bold = True
+    heading2.font.color.rgb = RGBColor(0, 0, 0)
 
     _add_letterhead(doc)
 
@@ -237,9 +285,13 @@ def build_notulensi_docx(meeting, transcript_text, ringkasan, keputusan, tindak_
     _info_table(doc, meeting)
     _peserta_table(doc, peserta_list)
     doc.add_paragraph("")
-    _pendahuluan_paragraph(doc, meeting, pimpinan)
-    _pembahasan_section(doc, ringkasan, keputusan)
-    _tindak_lanjut_table(doc, tindak_lanjut)
+    _pendahuluan_paragraph(doc, meeting, pimpinan, pendahuluan_text)
+    if struktur == "ringkas":
+        _pembahasan_ringkas_section(doc, ringkasan)
+        _tanya_jawab_section(doc, pertanyaan_jawaban or [])
+    else:
+        _pembahasan_section(doc, ringkasan, keputusan)
+        _tindak_lanjut_table(doc, tindak_lanjut)
     _tanda_tangan(doc, meeting, kepala, notulis)
     _dokumentasi_section(doc, meeting, dokumentasi_files)
 

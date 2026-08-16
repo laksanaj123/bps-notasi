@@ -11,7 +11,7 @@ load_dotenv(BASE_DIR / ".env")
 
 class Settings:
     # --- Umum ---
-    APP_NAME: str = "NOTASI - Notulensi Otomatis Berbasis AI"
+    APP_NAME: str = "NOTASI - Notula Otomatis Berbasis AI"
     SECRET_KEY: str = os.getenv("SECRET_KEY", "ganti-dengan-secret-key-acak-yang-panjang")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
@@ -24,12 +24,22 @@ class Settings:
     BUKTI_DIR: Path = BASE_DIR / "uploads" / "bukti"
     MATERI_DIR: Path = BASE_DIR / "uploads" / "materi"
     EXPORT_DIR: Path = BASE_DIR / "exports"
+    # Dipakai alur rapat baru (routers/rapat.py) - terpisah dari BUKTI_DIR/MATERI_DIR
+    # lama supaya berkas kedua model data tidak tercampur.
+    DOKUMEN_DIR: Path = BASE_DIR / "uploads" / "dokumen"
+    REKAMAN_DIR: Path = BASE_DIR / "uploads" / "rekaman"
     MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "500"))
     MAX_IMAGE_MB: int = int(os.getenv("MAX_IMAGE_MB", "15"))
     MAX_MATERI_MB: int = int(os.getenv("MAX_MATERI_MB", "30"))
     # Batas panjang teks hasil ekstraksi per file materi, supaya tidak
     # membanjiri context window LLM lokal yang kecil.
     MAX_MATERI_CHARS: int = int(os.getenv("MAX_MATERI_CHARS", "20000"))
+
+    # --- Retention audio: kandidat terbesar pemenuhan storage. File audio
+    # rekaman (bukan transkrip/notula-nya) dihapus otomatis setelah N hari,
+    # HANYA untuk rapat yang sudah final/diarsipkan (tidak pernah menghapus
+    # audio rapat yang masih berjalan/direview). 0 = nonaktif. ---
+    AUDIO_RETENTION_DAYS: int = int(os.getenv("AUDIO_RETENTION_DAYS", "30"))
 
     # =========================================================================
     # PROVIDER AI - dapat dipilih independen untuk Speech-to-Text (STT)
@@ -128,3 +138,5 @@ settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 settings.BUKTI_DIR.mkdir(parents=True, exist_ok=True)
 settings.MATERI_DIR.mkdir(parents=True, exist_ok=True)
 settings.EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+settings.DOKUMEN_DIR.mkdir(parents=True, exist_ok=True)
+settings.REKAMAN_DIR.mkdir(parents=True, exist_ok=True)

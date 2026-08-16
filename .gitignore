@@ -8,8 +8,13 @@ backend/.env
 
 # Runtime data (generated, not source)
 backend/notasi.db
+backend/notasi.db.bak-*
 backend/uploads/
 backend/exports/
+
+# Sensitive: real employee credentials / old backups with .env
+backend/migrasi_kredensial_*.txt
+backend/_backup_before_rag_removal_*/
 
 # Graphify generated cache
 graphify-out/cache/

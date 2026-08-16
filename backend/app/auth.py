@@ -66,6 +66,37 @@ def get_current_user(
         raise credentials_exception
 
     user = db.query(models.User).filter(models.User.username == username).first()
-    if user is None:
+    if user is None or user.is_active is False:
         raise credentials_exception
     return user
+
+
+def require_roles(*roles: str):
+    """Dependency factory: 403 bila role pengguna saat ini bukan salah satu dari `roles`.
+    Contoh: current_user: models.User = Depends(require_roles("admin"))."""
+    def checker(current_user: models.User = Depends(get_current_user)) -> models.User:
+        if current_user.role.value not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Anda tidak memiliki hak akses untuk aksi ini",
+            )
+        return current_user
+    return checker
+
+
+def can_write_meeting(user: models.User, meeting: models.Meeting) -> bool:
+    """Hanya ada 2 role permanen (admin/pegawai) - "menjadi notulis" bukan
+    role, melainkan penugasan per-rapat: siapapun (admin atau pegawai) yang
+    ditunjuk sebagai notulis_id rapat ini punya hak tulis penuh atas rapat
+    tsb. Admin selalu punya hak tulis di semua rapat."""
+    if user.role == models.RoleEnum.admin:
+        return True
+    return meeting.notulis_id is not None and meeting.notulis_id == user.id
+
+
+def assert_can_write_meeting(user: models.User, meeting: models.Meeting) -> None:
+    if not can_write_meeting(user, meeting):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda bukan notulis rapat ini - hanya notulis rapat atau admin yang dapat mengubahnya",
+        )

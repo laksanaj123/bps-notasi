@@ -1,0 +1,25 @@
+# Dependensi TAMBAHAN, hanya diperlukan jika Anda mengaktifkan speaker
+# diarization (DIARIZATION_ENABLED=true di .env) untuk memecah transkrip
+# rapat jadi per-pembicara di alur "Rapat".
+#
+# Install dengan:
+#   pip install -r requirements-diarization.txt
+#
+# Setelah paket terpasang, masih perlu:
+#   1. Buat akun HuggingFace gratis: https://huggingface.co/join
+#   2. Terima lisensi (klik "Agree and access repository") di kedua model:
+#        https://huggingface.co/pyannote/speaker-diarization-3.1
+#        https://huggingface.co/pyannote/segmentation-3.0
+#   3. Buat access token (read access cukup):
+#        https://huggingface.co/settings/tokens
+#   4. Isi HUGGINGFACE_TOKEN=<token Anda> di backend/.env, lalu
+#      DIARIZATION_ENABLED=true, lalu jalankan ulang server.
+#
+# Catatan performa: server ini biasanya CPU-only (tanpa GPU) - diarization
+# bisa jauh lebih lambat dari real-time (mis. rapat 30 menit bisa perlu
+# beberapa menit ekstra pemrosesan). Kalau paket/token tidak tersedia atau
+# gagal dimuat, aplikasi otomatis melewati diarization tanpa error -
+# transkripsi utama tetap berjalan normal.
+
+torch>=2.0.0
+pyannote.audio>=3.1.0

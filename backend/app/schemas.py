@@ -20,6 +20,10 @@ class UserOut(BaseModel):
     username: str
     role: str
     jabatan: Optional[str] = None
+    # Dipakai frontend (canCreateRapat()) untuk otomatis menampilkan tombol
+    # "Buat Rapat" ke pegawai yang pernah ditunjuk notulis di rapat manapun -
+    # cuma diisi oleh endpoint /api/auth/me, default False di tempat lain.
+    pernah_notulis: bool = False
 
     class Config:
         from_attributes = True
@@ -205,6 +209,7 @@ class AppSettingsOut(BaseModel):
     whisper_local_model: str
     openai_api_key_set: bool
     openai_api_key_masked: Optional[str] = None
+    whisper_local_device: str = "cpu"
 
 
 class AppSettingsUpdate(BaseModel):
@@ -213,6 +218,7 @@ class AppSettingsUpdate(BaseModel):
     openai_api_key: Optional[str] = None
     ollama_model: Optional[str] = None
     whisper_local_model: Optional[str] = None
+    whisper_local_device: Optional[str] = None
 
 
 class DashboardStats(BaseModel):
@@ -403,7 +409,34 @@ class RekamanOut(BaseModel):
         from_attributes = True
 
 
+class LiveSpeakerOut(BaseModel):
+    speaker_label: str
+    teks: str
+
+
+class LiveTranskripOut(BaseModel):
+    """Hasil transkripsi+diarization sekilas selama rekaman masih berlangsung
+    (item #64) - lihat live_snapshot_rekaman() di routers/rapat.py. `speakers`
+    kosong berarti diarization tidak tersedia/gagal - frontend fallback ke
+    `teks` polos."""
+    teks: str
+    speakers: List[LiveSpeakerOut] = []
+
+
 # ---------- Transkripsi ----------
+class TranskripSpeakerOut(BaseModel):
+    """Pecahan transkrip per-pembicara dari speaker diarization (opsional -
+    lihat services/diarization.py). Kosong kalau diarization nonaktif/gagal
+    atau cuma satu suara terdeteksi."""
+    id: int
+    speaker_label: str
+    urutan: int
+    teks: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class TranskripOut(BaseModel):
     id: int
     sumber: str
@@ -414,6 +447,7 @@ class TranskripOut(BaseModel):
     pesan_error: Optional[str] = None
     mulai_pada: Optional[datetime] = None
     selesai_pada: Optional[datetime] = None
+    speakers: list[TranskripSpeakerOut] = []
 
     class Config:
         from_attributes = True
@@ -452,6 +486,13 @@ class PertanyaanJawabanIn(BaseModel):
     jawaban: str = ""
 
 
+class GambarPembahasanItem(BaseModel):
+    """Gambar/grafik disisipkan setelah poin `ringkasan` ke-`index` (item #61) -
+    maks 2 path per index, divalidasi di endpoint upload."""
+    index: int
+    paths: List[str] = []
+
+
 class NotulaUpdate(BaseModel):
     """Autosave - kirim field yang berubah saja."""
     pendahuluan: Optional[str] = None
@@ -459,6 +500,7 @@ class NotulaUpdate(BaseModel):
     pertanyaan_jawaban: Optional[List[PertanyaanJawabanIn]] = None
     keputusan: Optional[List[str]] = None
     catatan_tambahan: Optional[str] = None
+    gambar_pembahasan: Optional[List[GambarPembahasanItem]] = None
 
 
 class NotulaOut(BaseModel):
@@ -474,6 +516,9 @@ class NotulaOut(BaseModel):
     difinalisasi_oleh: Optional[str] = None
     difinalisasi_pada: Optional[datetime] = None
     tindak_lanjut: List[TindakLanjutOut] = []
+    notulis_ttd_url: Optional[str] = None
+    pimpinan_ttd_url: Optional[str] = None
+    gambar_pembahasan: List[GambarPembahasanItem] = []
 
     class Config:
         from_attributes = True

@@ -24,7 +24,7 @@ from .data.pegawai_seed import PEGAWAI_SEED
 from .services.transcription import transcribe_audio, preload_stt_model, reset_local_model
 from .services.document_extract import extract_text, UnsupportedMaterialError
 from .services.summarizer import summarize_transcript
-from .services.docx_export import build_notulensi_docx
+from .services.docx_export import build_notula_from_template, build_pendahuluan_text
 from .services.pdf_export import convert_docx_to_pdf, find_soffice
 from .utils.storage import _save_upload
 from .routers.rapat import router as rapat_router
@@ -68,6 +68,14 @@ def _auto_migrate():
         "meeting_peserta": {
             "user_id": "INTEGER",
         },
+        "meeting_notula": {
+            "notulis_ttd_path": "TEXT",
+            "pimpinan_ttd_path": "TEXT",
+            "gambar_pembahasan": "TEXT DEFAULT '[]'",
+        },
+        "app_settings": {
+            "whisper_local_device": "TEXT",
+        },
     }
     with engine.connect() as conn:
         for table, needed in needed_by_table.items():
@@ -99,6 +107,17 @@ def _migrate_final_ke_diarsipkan():
 _migrate_final_ke_diarsipkan()
 
 
+def _apply_local_device(device: str):
+    """Satu toggle "CPU/GPU" di halaman Pengaturan mengatur DUA setelan
+    sekaligus - WHISPER_LOCAL_DEVICE (dipakai faster-whisper) dan
+    OLLAMA_NUM_GPU (dipakai Ollama, lihat services/summarizer.py) - supaya
+    pengguna tidak perlu paham kedua provider itu punya cara sendiri-sendiri
+    menyatakan "pakai GPU". 99 adalah konvensi umum Ollama untuk "offload
+    sebanyak mungkin layer ke GPU"."""
+    settings.WHISPER_LOCAL_DEVICE = device
+    settings.OLLAMA_NUM_GPU = 99 if device == "cuda" else 0
+
+
 def _load_settings_overrides():
     """Baca override provider AI tersimpan (halaman Pengaturan) dan terapkan
     ke singleton `settings` di memori, supaya berlaku persis seperti setelan
@@ -115,6 +134,8 @@ def _load_settings_overrides():
             value = getattr(row, field)
             if value:
                 setattr(settings, field.upper(), value)
+        if row.whisper_local_device:
+            _apply_local_device(row.whisper_local_device)
     finally:
         db.close()
 
@@ -238,6 +259,7 @@ def get_ai_settings(current_user: models.User = Depends(require_roles("admin")))
         whisper_local_model=settings.WHISPER_LOCAL_MODEL,
         openai_api_key_set=bool(settings.OPENAI_API_KEY),
         openai_api_key_masked=_mask_key(settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None,
+        whisper_local_device=settings.WHISPER_LOCAL_DEVICE,
     )
 
 
@@ -251,6 +273,8 @@ def update_ai_settings(payload: schemas.AppSettingsUpdate, db: Session = Depends
         raise HTTPException(status_code=400, detail=f"stt_provider harus salah satu dari {VALID_STT_PROVIDERS}")
     if "llm_provider" in data and data["llm_provider"] not in VALID_LLM_PROVIDERS:
         raise HTTPException(status_code=400, detail=f"llm_provider harus salah satu dari {VALID_LLM_PROVIDERS}")
+    if "whisper_local_device" in data and data["whisper_local_device"] not in ("cpu", "cuda"):
+        raise HTTPException(status_code=400, detail="whisper_local_device harus 'cpu' atau 'cuda'")
 
     # Validasi: provider openai butuh API key (baik dari payload ini maupun yang sudah tersimpan)
     new_openai_key = data.get("openai_api_key", None) or settings.OPENAI_API_KEY
@@ -269,8 +293,11 @@ def update_ai_settings(payload: schemas.AppSettingsUpdate, db: Session = Depends
         if value in (None, ""):
             continue
         setattr(row, field, value)
-        setattr(settings, field.upper(), value)
-        if field in ("whisper_local_model", "stt_provider"):
+        if field == "whisper_local_device":
+            _apply_local_device(value)
+        else:
+            setattr(settings, field.upper(), value)
+        if field in ("whisper_local_model", "stt_provider", "whisper_local_device"):
             whisper_changed = True
     db.commit()
 
@@ -284,6 +311,7 @@ def update_ai_settings(payload: schemas.AppSettingsUpdate, db: Session = Depends
         whisper_local_model=settings.WHISPER_LOCAL_MODEL,
         openai_api_key_set=bool(settings.OPENAI_API_KEY),
         openai_api_key_masked=_mask_key(settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None,
+        whisper_local_device=settings.WHISPER_LOCAL_DEVICE,
     )
 
 
@@ -302,8 +330,12 @@ def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
 
 
 @app.get("/api/auth/me", response_model=schemas.UserOut)
-def me(current_user: models.User = Depends(get_current_user)):
-    return current_user
+def me(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    out = schemas.UserOut.model_validate(current_user)
+    out.pernah_notulis = db.query(models.Meeting).filter(
+        models.Meeting.notulis_id == current_user.id
+    ).first() is not None
+    return out
 
 
 @app.post("/api/auth/register", response_model=schemas.UserOut)
@@ -909,7 +941,6 @@ def _build_export_docx(db: Session, meeting_id: int) -> tuple:
     if not summary:
         raise HTTPException(status_code=400, detail="Rapat belum diproses AI, tidak ada yang bisa diekspor")
 
-    transcript = db.query(models.Transcript).filter(models.Transcript.meeting_id == meeting_id).first()
     actions = db.query(models.ActionItem).filter(models.ActionItem.meeting_id == meeting_id).all()
     docs = db.query(models.Documentation).filter(models.Documentation.meeting_id == meeting_id).all()
     pimpinan = db.query(models.User).filter(models.User.id == meeting.pimpinan_id).first()
@@ -921,9 +952,8 @@ def _build_export_docx(db: Session, meeting_id: int) -> tuple:
 
     output_path = settings.EXPORT_DIR / f"notulensi_{meeting_id}_{uuid.uuid4().hex[:8]}.docx"
     try:
-        build_notulensi_docx(
+        build_notula_from_template(
             meeting=meeting,
-            transcript_text=transcript.teks_transkripsi if transcript else "",
             ringkasan=json.loads(summary.ringkasan),
             keputusan=json.loads(summary.keputusan),
             tindak_lanjut=[{
@@ -931,9 +961,11 @@ def _build_export_docx(db: Session, meeting_id: int) -> tuple:
                 "deadline": a.deadline, "status": a.status.value,
             } for a in actions],
             peserta_list=peserta,
-            pimpinan=pimpinan, notulis=notulis, kepala=kepala,
+            notulis=notulis, kepala=kepala,
             dokumentasi_files=[{"path": settings.BUKTI_DIR / d.file_path, "keterangan": d.keterangan} for d in docs],
             output_path=output_path,
+            struktur="lengkap",
+            pendahuluan_text=build_pendahuluan_text(meeting, pimpinan),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gagal menyusun dokumen Word: {e}")
@@ -976,22 +1008,28 @@ def export_pdf(meeting_id: int, db: Session = Depends(get_db),
 # ============================================================
 @app.get("/api/dashboard/stats", response_model=schemas.DashboardStats)
 def dashboard_stats(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Dashboard ini menyertai wizard lama - rapat dari alur baru (/api/rapat)
-    # dikecualikan di sini juga (lihat catatan di list_meetings) sampai
-    # dashboard/statistik Fase 2 dirancang untuk menggabungkan keduanya.
+    # Digabung dari kedua alur (lifecycle_status NULL = lama /api/meetings,
+    # terisi = baru /api/rapat) - keduanya berbagi tabel `meetings` yang sama
+    # (lihat routers/rapat.py). Sebelumnya hanya menghitung alur lama, jadi
+    # dashboard selalu terlihat kosong begitu semua rapat baru dibuat lewat
+    # wizard "Buat Notula" (alur baru).
     legacy = models.Meeting.lifecycle_status.is_(None)
-    total_rapat = db.query(models.Meeting).filter(legacy).count()
-    total_arsip = db.query(models.Archive).count()
+    S = models.MeetingLifecycleStatus
+    total_rapat = db.query(models.Meeting).count()
+    total_arsip = (
+        db.query(models.Archive).count()
+        + db.query(models.Meeting).filter(models.Meeting.lifecycle_status == S.diarsipkan).count()
+    )
 
     today = date.today()
     bulan_ini_prefix = today.strftime("%Y-%m")
     notulensi_bulan_ini = db.query(models.Meeting).filter(
-        legacy,
         models.Meeting.tanggal.like(f"{bulan_ini_prefix}%"),
-        models.Meeting.status == models.StatusEnum.selesai,
+        (legacy & (models.Meeting.status == models.StatusEnum.selesai))
+        | (models.Meeting.lifecycle_status.in_([S.review, S.diarsipkan])),
     ).count()
 
-    rows = db.query(models.Meeting.tanggal).filter(legacy).all()
+    rows = db.query(models.Meeting.tanggal).all()
     counts = {}
     for (tgl,) in rows:
         key = tgl[:7] if tgl else "unknown"

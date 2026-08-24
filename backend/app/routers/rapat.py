@@ -9,8 +9,11 @@ Aturan penting: jangan pernah menulis `meeting.lifecycle_status = ...`
 langsung di sini - selalu lewat `rapat_lifecycle.transisi()`.
 """
 import json
+import shutil
+import tempfile
 import threading
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
 
@@ -23,7 +26,8 @@ from ..auth import get_current_user, require_roles, assert_can_write_meeting
 from ..config import settings
 from ..database import get_db, SessionLocal
 from ..rapat_lifecycle import transisi, pastikan_status, tolak_jika_diarsipkan
-from ..services.docx_export import build_notulensi_docx, build_pendahuluan_text
+from ..services.document_extract import extract_text, UnsupportedMaterialError
+from ..services.docx_export import build_notula_from_template, build_pendahuluan_text
 from ..services.pdf_export import convert_docx_to_pdf
 from ..services.summarizer import summarize_transcript
 from ..services.transcription import transcribe_audio
@@ -33,6 +37,16 @@ from ..utils.tz import now_wib
 router = APIRouter(prefix="/api/rapat", tags=["rapat"])
 
 S = models.MeetingLifecycleStatus
+
+
+def _set_progress(db: Session, meeting: models.Meeting, pct: int, stage: str):
+    """Reuse kolom progress/progress_stage yang sama dengan alur lama (lihat
+    main.py _run_ai_pipeline) supaya wizard "Buat Rapat" bisa menampilkan
+    animasi proses yang sama lewat GET /api/meetings/{id}/progress - endpoint
+    itu tidak eksklusif untuk alur lama, hanya butuh meeting_id yang valid."""
+    meeting.progress = pct
+    meeting.progress_stage = stage
+    db.commit()
 
 
 # ============================================================
@@ -128,6 +142,9 @@ def _to_notula_out(db: Session, notula: models.MeetingNotula) -> schemas.NotulaO
         catatan_tambahan=notula.catatan_tambahan, sumber=notula.sumber.value if notula.sumber else None,
         versi=notula.versi, difinalisasi_oleh=difinal_nama, difinalisasi_pada=notula.difinalisasi_pada,
         tindak_lanjut=[schemas.TindakLanjutOut.model_validate(t) for t in notula.tindak_lanjut],
+        notulis_ttd_url=f"/media/dokumen/{notula.notulis_ttd_path}" if notula.notulis_ttd_path else None,
+        pimpinan_ttd_url=f"/media/dokumen/{notula.pimpinan_ttd_path}" if notula.pimpinan_ttd_path else None,
+        gambar_pembahasan=json.loads(notula.gambar_pembahasan or "[]"),
     )
 
 
@@ -223,11 +240,18 @@ def list_rapat(q: str = "", status: str = "", hanya_peserta_saya: bool = False, 
         peserta_meeting_ids = peserta_query.subquery()
         query = query.filter(models.Meeting.id.in_(peserta_meeting_ids))
     elif current_user.role != models.RoleEnum.admin:
-        # Halaman "Rapat" (kelola aktif) - pegawai tidak punya fitur Rapat
-        # penuh (lihat item 37), kecuali untuk rapat yang dia sendiri ditunjuk
-        # sebagai notulis (lihat auth.can_write_meeting). Arsip notula tetap
-        # dijangkau lewat hanya_peserta_saya di atas, terlepas dari ini.
-        query = query.filter(models.Meeting.notulis_id == current_user.id)
+        # Halaman "Rapat" & "Kelengkapan Rapat" - pegawai melihat rapat yang dia
+        # sendiri ditunjuk sebagai notulis (hak tulis, lihat auth.can_write_meeting)
+        # ATAU rapat yang mengundangnya sebagai peserta (baca-saja) - supaya rapat
+        # yang dia diundang tapi bukan notulis tetap muncul di kedua halaman itu,
+        # bukan cuma di widget Dashboard yang sebelumnya satu-satunya jalan lewat
+        # hanya_peserta_saya di atas.
+        peserta_meeting_ids = db.query(models.MeetingPeserta.meeting_id).filter(
+            models.MeetingPeserta.user_id == current_user.id).subquery()
+        query = query.filter(
+            (models.Meeting.notulis_id == current_user.id)
+            | (models.Meeting.id.in_(peserta_meeting_ids))
+        )
     meetings = query.order_by(models.Meeting.tanggal.desc()).all()
     return [_to_rapat_out(db, m) for m in meetings]
 
@@ -362,6 +386,16 @@ def tambah_peserta(rapat_id: int, payload: schemas.PesertaCreate, db: Session = 
         ditambahkan_oleh=current_user.id,
     )
     db.add(p)
+    db.commit()
+    db.refresh(p)
+    # Default hadir - tombol "Peserta Datang Langsung" (endpoint /walkin di atas)
+    # sudah dihapus dari UI, "Tambah Peserta" sekarang satu-satunya alur, jadi
+    # perilakunya disamakan: peserta yang ditambahkan dianggap hadir sampai
+    # dikoreksi lewat chip kehadiran (lihat catat_kehadiran()) - notula/pratinjau
+    # hanya menampilkan peserta berstatus "hadir" (lihat _to_notula_out/export).
+    kehadiran = models.MeetingKehadiran(peserta_id=p.id, status_kehadiran=models.StatusKehadiranEnum.hadir,
+                                         waktu_hadir=now_wib(), dicatat_oleh=current_user.id)
+    db.add(kehadiran)
     db.commit()
     db.refresh(p)
     return _to_peserta_out(p)
@@ -668,6 +702,41 @@ def selesaikan_rekaman(rapat_id: int, rekaman_id: int, file: UploadFile = File(.
     )
 
 
+@router.post("/{rapat_id}/rekaman/{rekaman_id}/live-snapshot", response_model=schemas.LiveTranskripOut)
+def live_snapshot_rekaman(rapat_id: int, rekaman_id: int, file: UploadFile = File(...),
+                           db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Transkripsi + diarization "sekilas" dari rekaman SEJAK AWAL segmen
+    sampai saat ini (item #64) - dipanggil periodik (~tiap 20-30 detik) oleh
+    frontend selama status masih 'merekam', BUKAN dari berkas final. Hasilnya
+    tidak disimpan permanen (transkrip resmi tetap dari selesaikan_rekaman() +
+    proses_transkripsi() seperti biasa setelah rekaman berhenti) - berkas
+    sementara di sini langsung dihapus setelah diproses. Diarization mengikuti
+    aturan auto-disable yang sama dengan transkrip final (lihat
+    services/diarization.py) - kalau tidak tersedia, cukup kembalikan teks
+    polos tanpa label pembicara."""
+    meeting = _get_rapat_or_404(db, rapat_id)
+    assert_can_write_meeting(current_user, meeting)
+    seg = _get_rekaman_or_404(db, rapat_id, rekaman_id)
+    if seg.status != models.StatusRekamanEnum.merekam:
+        raise HTTPException(status_code=400, detail="Rekaman ini sedang tidak berlangsung")
+    ext = Path(file.filename).suffix or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False, dir=settings.REKAMAN_DIR) as tmp:
+        tmp_path = Path(tmp.name)
+        shutil.copyfileobj(file.file, tmp)
+    try:
+        from ..services.diarization import diarize_and_split
+        teks, whisper_segments = transcribe_audio(tmp_path, return_segments=True)
+        speakers = diarize_and_split(tmp_path, whisper_segments) if whisper_segments else None
+        return schemas.LiveTranskripOut(
+            teks=teks,
+            speakers=[{"speaker_label": s["speaker_label"], "teks": s["teks"]} for s in speakers] if speakers else [],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal memproses cuplikan langsung: {e}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 @router.get("/{rapat_id}/rekaman", response_model=List[schemas.RekamanOut])
 def list_rekaman(rapat_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     _get_rapat_or_404(db, rapat_id)
@@ -698,25 +767,63 @@ def _run_transkripsi(meeting_id: int, transkrip_id: int):
             models.MeetingRekaman.meeting_id == meeting_id,
             models.MeetingRekaman.status == models.StatusRekamanEnum.siap,
         ).order_by(models.MeetingRekaman.segmen_ke).all()
+        _set_progress(db, meeting, 10, "Menyiapkan berkas rekaman")
         try:
             if not segmen:
                 raise RuntimeError("Tidak ada rekaman siap untuk ditranskripsi")
-            bagian = []
-            for seg in segmen:
-                path = settings.REKAMAN_DIR / seg.file_path
-                teks = transcribe_audio(path)
-                label = f"--- Segmen {seg.segmen_ke} ---\n" if len(segmen) > 1 else ""
-                bagian.append(label + teks)
+            # Diarization (opsional, lihat services/diarization.py) hanya untuk
+            # kasus umum satu rekaman per rapat - dengan >1 segmen (jeda/ulang
+            # rekam), penyelarasan label pembicara antar-berkas terpisah di
+            # luar scope saat ini, jadi transkripsi tetap jalan tanpa diarization.
+            whisper_segments = None
+            audio_path_untuk_diarisasi = None
+            if len(segmen) == 1:
+                path = settings.REKAMAN_DIR / segmen[0].file_path
+
+                def _stt_progress(fraction: float, stage: str):
+                    _set_progress(db, meeting, 10 + int(80 * fraction), stage)
+
+                teks, whisper_segments = transcribe_audio(path, progress_cb=_stt_progress, return_segments=True)
+                bagian = [teks]
+                audio_path_untuk_diarisasi = path
+            else:
+                bagian = []
+                for i, seg in enumerate(segmen):
+                    _set_progress(db, meeting, 10 + int(80 * i / len(segmen)), f"Mentranskripsi segmen {seg.segmen_ke}")
+                    path = settings.REKAMAN_DIR / seg.file_path
+                    teks = transcribe_audio(path)
+                    label = f"--- Segmen {seg.segmen_ke} ---\n"
+                    bagian.append(label + teks)
             transkrip.teks = "\n\n".join(bagian)
             transkrip.status = models.StatusTranskripEnum.siap
             transkrip.selesai_pada = now_wib()
             db.commit()
+            _set_progress(db, meeting, 90, "Transkripsi selesai")
+
+            durasi_ok = (segmen[0].durasi_detik or 0) <= settings.DIARIZATION_MAX_AUDIO_MINUTES * 60
+            if settings.DIARIZATION_ENABLED and audio_path_untuk_diarisasi and whisper_segments and durasi_ok:
+                try:
+                    from ..services.diarization import diarize_and_split
+                    speakers = diarize_and_split(audio_path_untuk_diarisasi, whisper_segments)
+                    if speakers:
+                        for sp in speakers:
+                            db.add(models.MeetingTranskripSpeaker(
+                                transkrip_id=transkrip.id, speaker_label=sp["speaker_label"],
+                                urutan=sp["urutan"], teks=sp["teks"]))
+                        db.commit()
+                except Exception as e:
+                    # Diarization gagal TIDAK boleh membuat transkripsi utama
+                    # (sudah commit di atas) ikut dianggap gagal.
+                    print(f"[NOTASI] Diarization dilewati: {e}")
+
             # Rapat yang masih BERLANGSUNG saat transkripsi dimulai (item 38)
             # tidak pernah dipindah ke DIPROSES - lihat proses_transkripsi() -
             # jadi tidak ada transisi lifecycle untuk dibalikkan di sini.
             if meeting.lifecycle_status == S.diproses:
                 transisi(db, meeting, "transkripsi_selesai", actor=None, catatan="Transkripsi otomatis berhasil")
+            _set_progress(db, meeting, 100, "Selesai")
         except Exception as e:
+            _set_progress(db, meeting, meeting.progress or 0, f"Gagal: {e}")
             transkrip.status = models.StatusTranskripEnum.gagal
             transkrip.pesan_error = str(e)
             transkrip.selesai_pada = now_wib()
@@ -751,6 +858,8 @@ def proses_transkripsi(rapat_id: int, db: Session = Depends(get_db),
     # yang sudah SELESAI yang benar-benar pindah ke DIPROSES.
     if meeting.lifecycle_status == S.selesai:
         transisi(db, meeting, "mulai_transkripsi", actor=current_user)
+    meeting.progress = 5
+    meeting.progress_stage = "Masuk antrean transkripsi"
     db.commit()
     db.refresh(transkrip)
 
@@ -767,6 +876,32 @@ def transkripsi_manual(rapat_id: int, payload: schemas.TranskripManualIn, db: Se
     transkrip = models.MeetingTranskrip(
         meeting_id=rapat_id, sumber=models.SumberTranskripEnum.manual,
         status=models.StatusTranskripEnum.siap, teks=payload.teks,
+        mulai_pada=now_wib(), selesai_pada=now_wib(),
+    )
+    db.add(transkrip)
+    db.commit()
+    return _to_rapat_out(db, meeting)
+
+
+@router.post("/{rapat_id}/transkripsi/dokumen", response_model=schemas.RapatOut)
+def transkripsi_dari_dokumen(rapat_id: int, file: UploadFile = File(...), db: Session = Depends(get_db),
+                              current_user: models.User = Depends(get_current_user)):
+    """Sumber transkrip dari berkas Word/PDF/PPTX/TXT yang sudah berisi hasil
+    rapat (mis. notula kasar/catatan) - teksnya diekstrak lalu diringkas AI
+    persis seperti sumber manual/STT, lihat services/document_extract.py."""
+    meeting = _get_rapat_or_404(db, rapat_id)
+    assert_can_write_meeting(current_user, meeting)
+    pastikan_status(meeting, S.selesai)
+    saved_path = _save_upload(file, settings.DOKUMEN_DIR, settings.MAX_MATERI_MB)
+    try:
+        teks = extract_text(saved_path)
+    except UnsupportedMaterialError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not teks:
+        raise HTTPException(status_code=400, detail="Tidak ada teks yang bisa diekstrak dari berkas ini.")
+    transkrip = models.MeetingTranskrip(
+        meeting_id=rapat_id, sumber=models.SumberTranskripEnum.dokumen,
+        status=models.StatusTranskripEnum.siap, teks=teks,
         mulai_pada=now_wib(), selesai_pada=now_wib(),
     )
     db.add(transkrip)
@@ -828,6 +963,7 @@ def _run_notula(meeting_id: int):
         try:
             if not transkrip or not transkrip.teks:
                 raise RuntimeError("Belum ada transkrip siap untuk diringkas")
+            _set_progress(db, meeting, 20, "Menyusun ringkasan, keputusan, dan tanya-jawab dengan AI")
             pimpinan = db.query(models.User).filter(models.User.id == meeting.pimpinan_id).first() \
                 if meeting.pimpinan_id else None
             result = summarize_transcript(transkrip.teks, {
@@ -841,6 +977,7 @@ def _run_notula(meeting_id: int):
                 "materi_rapat": "",
                 "catatan_notulis": meeting.catatan_notulis or "",
             }, struktur="ringkas")
+            _set_progress(db, meeting, 90, "Menyimpan hasil ke basis data")
             notula.ringkasan = json.dumps(result["ringkasan"], ensure_ascii=False)
             notula.pertanyaan_jawaban = json.dumps(result["pertanyaan_jawaban"], ensure_ascii=False)
             if not notula.pendahuluan:
@@ -850,10 +987,12 @@ def _run_notula(meeting_id: int):
             notula.diperbarui_pada = now_wib()
             db.commit()
             transisi(db, meeting, "notula_berhasil", actor=None, catatan="Draft notula dibuat otomatis oleh AI")
+            _set_progress(db, meeting, 100, "Selesai")
         except Exception as e:
             db.rollback()
             notula = _get_or_create_notula(db, meeting_id)
             transisi(db, meeting, "notula_gagal", actor=None, catatan=f"Generate notula gagal: {e}")
+            _set_progress(db, meeting, meeting.progress or 0, f"Gagal: {e}")
     finally:
         db.close()
 
@@ -869,6 +1008,8 @@ def generate_notula(rapat_id: int, db: Session = Depends(get_db),
     ).count() > 0
     if not ada_transkrip:
         raise HTTPException(status_code=400, detail="Belum ada transkrip siap untuk diringkas")
+    meeting.progress = 5
+    meeting.progress_stage = "Masuk antrean penyusunan notula"
     transisi(db, meeting, "mulai_notula", actor=current_user)
     threading.Thread(target=_run_notula, args=(rapat_id,), daemon=True).start()
     return _to_rapat_out(db, meeting)
@@ -931,6 +1072,8 @@ def edit_notula(rapat_id: int, payload: schemas.NotulaUpdate, db: Session = Depe
         notula.keputusan = json.dumps(data["keputusan"], ensure_ascii=False)
     if "catatan_tambahan" in data:
         notula.catatan_tambahan = data["catatan_tambahan"]
+    if "gambar_pembahasan" in data and data["gambar_pembahasan"] is not None:
+        notula.gambar_pembahasan = json.dumps(data["gambar_pembahasan"], ensure_ascii=False)
     if notula.sumber == models.SumberNotulaEnum.llm:
         notula.sumber = models.SumberNotulaEnum.campuran
     # Item 39: menyimpan (bukan finalisasi) menandai notula sedang "Proses" -
@@ -940,6 +1083,70 @@ def edit_notula(rapat_id: int, payload: schemas.NotulaUpdate, db: Session = Depe
         notula.status = models.StatusNotulaEnum.draft_manual
     notula.diperbarui_pada = now_wib()
     db.commit()
+    return _to_notula_out(db, notula)
+
+
+@router.post("/{rapat_id}/notula/ttd", response_model=schemas.NotulaOut)
+def simpan_ttd_notula(rapat_id: int, peran: str = Form(...), file: UploadFile = File(...),
+                       db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Tanda tangan digital (gambar PNG dari canvas coret-tangan di frontend)
+    untuk Notulis atau Pimpinan Rapat - disisipkan ke dokumen ekspor resmi
+    kalau ada, lihat services/docx_export.py. Disimpan di folder dokumen yang
+    sama (settings.DOKUMEN_DIR), bukan tabel/folder terpisah, supaya tidak
+    perlu mount static baru untuk sekadar 2 gambar per rapat."""
+    if peran not in ("notulis", "pimpinan"):
+        raise HTTPException(status_code=400, detail="peran harus 'notulis' atau 'pimpinan'")
+    meeting = _get_rapat_or_404(db, rapat_id)
+    assert_can_write_meeting(current_user, meeting)
+    pastikan_status(meeting, S.selesai, S.review)
+    notula = _get_or_create_notula(db, rapat_id)
+    saved_path = _save_upload(file, settings.DOKUMEN_DIR, settings.MAX_IMAGE_MB)
+    setattr(notula, f"{peran}_ttd_path", saved_path.name)
+    notula.diperbarui_pada = now_wib()
+    db.commit()
+    return _to_notula_out(db, notula)
+
+
+@router.post("/{rapat_id}/notula/gambar", response_model=schemas.NotulaOut)
+def tambah_gambar_pembahasan(rapat_id: int, index: int = Form(...), file: UploadFile = File(...),
+                              db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Gambar/grafik disisipkan setelah poin pembahasan ke-`index` (item #61) -
+    maks 2 gambar per poin, disisipkan ke dokumen ekspor resmi diskalakan
+    supaya tetap muat 1 halaman (lihat services/docx_export.py)."""
+    meeting = _get_rapat_or_404(db, rapat_id)
+    assert_can_write_meeting(current_user, meeting)
+    pastikan_status(meeting, S.selesai, S.review)
+    notula = _get_or_create_notula(db, rapat_id)
+    entries = json.loads(notula.gambar_pembahasan or "[]")
+    entry = next((e for e in entries if e["index"] == index), None)
+    if entry is None:
+        entry = {"index": index, "paths": []}
+        entries.append(entry)
+    if len(entry["paths"]) >= 2:
+        raise HTTPException(status_code=400, detail="Maksimal 2 gambar per poin pembahasan")
+    saved_path = _save_upload(file, settings.DOKUMEN_DIR, settings.MAX_IMAGE_MB)
+    entry["paths"].append(saved_path.name)
+    notula.gambar_pembahasan = json.dumps(entries, ensure_ascii=False)
+    notula.diperbarui_pada = now_wib()
+    db.commit()
+    return _to_notula_out(db, notula)
+
+
+@router.delete("/{rapat_id}/notula/gambar", response_model=schemas.NotulaOut)
+def hapus_gambar_pembahasan(rapat_id: int, index: int, path: str, db: Session = Depends(get_db),
+                             current_user: models.User = Depends(get_current_user)):
+    meeting = _get_rapat_or_404(db, rapat_id)
+    assert_can_write_meeting(current_user, meeting)
+    notula = _get_or_create_notula(db, rapat_id)
+    entries = json.loads(notula.gambar_pembahasan or "[]")
+    entry = next((e for e in entries if e["index"] == index), None)
+    if entry and path in entry["paths"]:
+        entry["paths"].remove(path)
+        (settings.DOKUMEN_DIR / path).unlink(missing_ok=True)
+        entries = [e for e in entries if e["paths"]]
+        notula.gambar_pembahasan = json.dumps(entries, ensure_ascii=False)
+        notula.diperbarui_pada = now_wib()
+        db.commit()
     return _to_notula_out(db, notula)
 
 
@@ -1075,7 +1282,7 @@ def riwayat_status(rapat_id: int, db: Session = Depends(get_db), current_user: m
 # ============================================================
 #  EXPORT - Word & PDF
 # ============================================================
-def _build_export_docx(db: Session, rapat_id: int) -> tuple:
+def _build_export_docx(db: Session, rapat_id: int, current_user: models.User) -> tuple:
     """Menyusun dokumen Word notula untuk sebuah rapat dari alur baru.
     Setara `_build_export_docx` di main.py, tapi membaca dari tabel
     relasional baru (MeetingPeserta/MeetingNotula/MeetingDokumen) alih-alih
@@ -1086,8 +1293,24 @@ def _build_export_docx(db: Session, rapat_id: int) -> tuple:
         raise HTTPException(status_code=400, detail="Notula belum diisi, tidak ada yang bisa diekspor")
 
     peserta_rows = db.query(models.MeetingPeserta).filter(models.MeetingPeserta.meeting_id == rapat_id).all()
+    # Ekspor notula (docx/pdf) sekarang juga dipakai pegawai peserta lewat
+    # pratinjau di tab Notula (bukan cuma admin/notulis lewat UI lama) -
+    # batasi ke admin, notulis rapat ini, atau peserta terdaftar, supaya
+    # pegawai tidak bisa mengunduh notula rapat yang tidak ada hubungannya.
+    boleh = (
+        current_user.role == "admin"
+        or (meeting.notulis_id and meeting.notulis_id == current_user.id)
+        or any(p.user_id == current_user.id for p in peserta_rows)
+    )
+    if not boleh:
+        raise HTTPException(status_code=403, detail="Anda tidak berhak mengakses notula rapat ini")
+    # Notula/pratinjau hanya menampilkan peserta yang benar hadir - peserta yang
+    # diundang/didaftarkan tapi tidak datang tetap tercatat di tab Peserta (untuk
+    # akses/kelengkapan), tapi tidak muncul di dokumen resmi.
     peserta_list = []
     for p in peserta_rows:
+        if not (p.kehadiran and p.kehadiran.status_kehadiran == models.StatusKehadiranEnum.hadir):
+            continue
         if p.user_id and p.user:
             peserta_list.append(SimpleNamespace(nama=p.user.nama, jabatan=p.user.jabatan or "-"))
         else:
@@ -1106,9 +1329,8 @@ def _build_export_docx(db: Session, rapat_id: int) -> tuple:
 
     output_path = settings.EXPORT_DIR / f"notula_{rapat_id}_{uuid.uuid4().hex[:8]}.docx"
     try:
-        build_notulensi_docx(
+        build_notula_from_template(
             meeting=meeting,
-            transcript_text="",  # Lampiran transkripsi tidak ditampilkan di export Sistem B (permintaan pengguna)
             ringkasan=json.loads(notula.ringkasan or "[]"),
             keputusan=json.loads(notula.keputusan or "[]"),
             tindak_lanjut=[{
@@ -1116,12 +1338,15 @@ def _build_export_docx(db: Session, rapat_id: int) -> tuple:
                 "deadline": t.deadline, "status": t.status.value,
             } for t in notula.tindak_lanjut],
             peserta_list=peserta_list,
-            pimpinan=pimpinan, notulis=notulis, kepala=kepala,
+            notulis=notulis, kepala=kepala,
             dokumentasi_files=[{"path": settings.DOKUMEN_DIR / d.file_path, "keterangan": None} for d in dokumentasi],
             output_path=output_path,
             struktur="ringkas",
             pendahuluan_text=notula.pendahuluan,
             pertanyaan_jawaban=json.loads(notula.pertanyaan_jawaban or "[]"),
+            notulis_ttd_path=settings.DOKUMEN_DIR / notula.notulis_ttd_path if notula.notulis_ttd_path else None,
+            pimpinan_ttd_path=settings.DOKUMEN_DIR / notula.pimpinan_ttd_path if notula.pimpinan_ttd_path else None,
+            gambar_pembahasan=json.loads(notula.gambar_pembahasan or "[]"),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gagal menyusun dokumen Word: {e}")
@@ -1131,7 +1356,7 @@ def _build_export_docx(db: Session, rapat_id: int) -> tuple:
 @router.get("/{rapat_id}/export/docx")
 def export_docx(rapat_id: int, db: Session = Depends(get_db),
                  current_user: models.User = Depends(get_current_user)):
-    meeting, output_path = _build_export_docx(db, rapat_id)
+    meeting, output_path = _build_export_docx(db, rapat_id, current_user)
     return FileResponse(
         path=output_path,
         filename=f"Notula - {meeting.judul_rapat}.docx",
@@ -1142,7 +1367,7 @@ def export_docx(rapat_id: int, db: Session = Depends(get_db),
 @router.get("/{rapat_id}/export/pdf")
 def export_pdf(rapat_id: int, db: Session = Depends(get_db),
                 current_user: models.User = Depends(get_current_user)):
-    meeting, docx_path = _build_export_docx(db, rapat_id)
+    meeting, docx_path = _build_export_docx(db, rapat_id, current_user)
     try:
         pdf_path = convert_docx_to_pdf(docx_path, settings.EXPORT_DIR)
     except RuntimeError as e:

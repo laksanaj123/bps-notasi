@@ -74,6 +74,8 @@ class JenisDokumenEnum(str, enum.Enum):
     materi = "materi"
     undangan = "undangan"
     dokumentasi = "dokumentasi"
+    notula = "notula"
+    daftar_hadir = "daftar_hadir"
     lainnya = "lainnya"
 
 
@@ -160,6 +162,10 @@ class AppSettings(Base):
     openai_api_key = Column(String(255), nullable=True)
     ollama_model = Column(String(100), nullable=True)
     whisper_local_model = Column(String(20), nullable=True)
+    # "cpu" atau "cuda" - satu toggle ini mengatur WHISPER_LOCAL_DEVICE
+    # (Whisper) DAN OLLAMA_NUM_GPU (Ollama) sekaligus, lihat main.py
+    # _apply_local_device()/update_ai_settings().
+    whisper_local_device = Column(String(10), nullable=True)
 
 
 class Pegawai(Base):
@@ -414,6 +420,25 @@ class MeetingTranskrip(Base):
     selesai_pada = Column(DateTime, nullable=True)
 
     meeting = relationship("Meeting")
+    speakers = relationship("MeetingTranskripSpeaker", order_by="MeetingTranskripSpeaker.urutan",
+                             back_populates="transkrip")
+
+
+class MeetingTranskripSpeaker(Base):
+    """Pecahan transkrip per-pembicara hasil speaker diarization (pyannote.audio,
+    opsional - lihat services/diarization.py). Satu baris per pembicara yang
+    terdeteksi untuk satu MeetingTranskrip; urutan berdasarkan total durasi
+    bicara terbanyak (Pembicara 1 = paling banyak bicara)."""
+    __tablename__ = "meeting_transkrip_speaker"
+
+    id = Column(Integer, primary_key=True, index=True)
+    transkrip_id = Column(Integer, ForeignKey("meeting_transkrip.id"), nullable=False)
+    speaker_label = Column(String(50), nullable=False)
+    urutan = Column(Integer, default=0)
+    teks = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=now_wib)
+
+    transkrip = relationship("MeetingTranskrip", back_populates="speakers")
 
 
 class MeetingNotula(Base):
@@ -433,6 +458,16 @@ class MeetingNotula(Base):
     versi = Column(Integer, default=1)
     difinalisasi_oleh = Column(Integer, ForeignKey("users.id"), nullable=True)
     difinalisasi_pada = Column(DateTime, nullable=True)
+    # Tanda tangan digital (gambar PNG hasil canvas, lihat routers/rapat.py
+    # simpan_ttd_notula()) - disisipkan ke dokumen ekspor resmi kalau ada,
+    # lihat services/docx_export.py.
+    notulis_ttd_path = Column(String(500), nullable=True)
+    pimpinan_ttd_path = Column(String(500), nullable=True)
+    # Gambar/grafik yang disisipkan di antara poin pembahasan (item #61) -
+    # JSON list[{"index": <posisi di ringkasan>, "paths": [str, ...maks 2]}].
+    # Terpisah dari `ringkasan` (list[str] murni) supaya tidak mengubah
+    # format yang dikonsumsi AI/summarizer & docx export yang sudah ada.
+    gambar_pembahasan = Column(Text, default="[]")
     dibuat_pada = Column(DateTime, default=now_wib)
     diperbarui_pada = Column(DateTime, default=now_wib, onupdate=now_wib)
 

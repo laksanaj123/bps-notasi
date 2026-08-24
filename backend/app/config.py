@@ -70,6 +70,14 @@ class Settings:
     WHISPER_LOCAL_DEVICE: str = os.getenv("WHISPER_LOCAL_DEVICE", "cpu")  # "cuda" bila ada GPU NVIDIA
     # int8 = tercepat di CPU; float16 = untuk GPU; kosongkan agar dipilih otomatis
     WHISPER_COMPUTE_TYPE: str = os.getenv("WHISPER_COMPUTE_TYPE", "")
+    # Kosong = deteksi bahasa otomatis - untuk rapat yang bisa bilingual
+    # Indonesia/Inggris. Isi "id" atau "en" untuk memaksa satu bahasa (sedikit
+    # lebih cepat & stabil kalau rapatnya memang selalu satu bahasa saja).
+    WHISPER_LANGUAGE: str = os.getenv("WHISPER_LANGUAGE", "")
+    # Normalisasi loudness (ffmpeg) sebelum STT - membantu rekaman dari mic yang
+    # jauh/pelan dari sumber suara supaya levelnya konsisten sebelum ditranskripsi.
+    # Butuh ffmpeg terpasang; kalau tidak ada, otomatis dilewati tanpa error.
+    WHISPER_AUDIO_NORMALIZE: bool = os.getenv("WHISPER_AUDIO_NORMALIZE", "true").lower() in ("1", "true", "yes")
     # beam_size=1 (greedy) ~2-3x lebih cepat dari default 5, akurasi turun tipis
     WHISPER_BEAM_SIZE: int = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
     # VAD memotong bagian hening/jeda rapat sebelum ditranskripsi.
@@ -103,7 +111,16 @@ class Settings:
 
     # Ollama - LLM lokal tanpa API key
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3")
+    # Model ringan (~2GB) - aman untuk server kecil (mis. 8GB RAM). Kualitas
+    # ringkasan meningkat jauh lebih banyak dari menaikkan OLLAMA_NUM_CTX
+    # (lihat di bawah) daripada dari mengganti model - baru pertimbangkan
+    # model lebih besar setelah num_ctx dinaikkan dan hasil masih kurang.
+    # Alternatif lebih besar & lebih akurat (SUDAH tersedia lewat `ollama
+    # pull llama3`, ~4.7GB) - HANYA disarankan bila server punya >= 16GB RAM,
+    # karena model 8B + context besar sekaligus mudah membuat proses Ollama
+    # kehabisan memori (gagal diam-diam atau macet) di server kecil:
+    #   OLLAMA_MODEL=llama3
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     # Model 8B di CPU lambat bisa melebihi 300 dtk untuk transkrip panjang;
     # naikkan bila sering gagal dengan pesan "Read timed out".
     OLLAMA_TIMEOUT_SECONDS: int = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "300"))
@@ -113,6 +130,32 @@ class Settings:
     # masalah model. Naikkan (mis. 999 = semua layer ke GPU) hanya jika sudah
     # diuji dan hasilnya tetap benar di mesin Anda.
     OLLAMA_NUM_GPU: int = int(os.getenv("OLLAMA_NUM_GPU", "0"))
+    # PENYEBAB PALING UMUM ringkasan AI "tidak sesuai"/asal-asalan: Ollama
+    # default context window HANYA 2048 token - transkrip rapat asli (bisa
+    # >1 jam, ribuan kata) langsung TERPOTONG DIAM-DIAM sebelum sampai ke
+    # model, jadi model cuma "melihat" beberapa menit pertama rapat lalu
+    # meringkas itu seolah itu keseluruhan rapat. 4096 token (~perkiraan
+    # rapat 30-45 menit) dipilih sebagai default AMAN untuk server RAM kecil
+    # (~8GB) - naikkan (mis. 8192) kalau RAM server lebih longgar & rapatnya
+    # sering lebih panjang; turunkan kalau Ollama sering gagal/macet karena
+    # kehabisan memori.
+    OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+
+    # -------- SPEAKER DIARIZATION (pyannote.audio, opsional) --------
+    # Hanya dipakai alur "Rapat" (routers/rapat.py) untuk memecah transkrip
+    # per-pembicara. Butuh `pip install -r requirements-diarization.txt`
+    # (PyTorch + pyannote.audio, ~2-3GB) DAN HUGGINGFACE_TOKEN (akun gratis,
+    # terima lisensi model di huggingface.co/pyannote/speaker-diarization-3.1
+    # dan huggingface.co/pyannote/segmentation-3.0, lalu buat token di
+    # huggingface.co/settings/tokens). Kalau paket/token/model tidak
+    # tersedia saat runtime, diarization otomatis dilewati (log peringatan)
+    # dan transkripsi utama tetap berjalan seperti biasa.
+    DIARIZATION_ENABLED: bool = os.getenv("DIARIZATION_ENABLED", "false").lower() in ("1", "true", "yes")
+    HUGGINGFACE_TOKEN: str = os.getenv("HUGGINGFACE_TOKEN", "")
+    DIARIZATION_MODEL: str = os.getenv("DIARIZATION_MODEL", "pyannote/speaker-diarization-3.1")
+    # Di atas durasi ini (menit), diarization dilewati (CPU tanpa GPU bisa
+    # sangat lambat untuk audio panjang) - transkripsi utama tetap lanjut.
+    DIARIZATION_MAX_AUDIO_MINUTES: int = int(os.getenv("DIARIZATION_MAX_AUDIO_MINUTES", "60"))
 
     @property
     def DEMO_MODE(self) -> bool:

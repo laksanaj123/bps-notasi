@@ -5,8 +5,10 @@ kop surat berulang di setiap halaman, tabel info rapat, tabel peserta,
 narasi pendahuluan, pembahasan & keputusan, tabel tindak lanjut, blok
 tanda tangan (Kepala & Notulis), serta lampiran foto dokumentasi kegiatan.
 """
+from copy import deepcopy
 from pathlib import Path
 from docx import Document
+from docx.oxml.ns import qn
 from docx.shared import Pt, Inches, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
@@ -17,6 +19,12 @@ from ..utils.indo_date import (
 )
 
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "bps_logo.png"
+# Template Word resmi BPS Kabupaten Sanggau (Template_Notula_Rapat.docx),
+# diubah jadi versi berplaceholder ({{token}}) lewat skrip satu-kali - lihat
+# build_notula_from_template() di bawah. Dipakai supaya hasil ekspor
+# persis meniru format Word asli (font/tabel/kop surat resminya sendiri),
+# bukan rekonstruksi ulang lewat python-docx seperti build_notulensi_docx().
+NOTULA_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "notula_template.docx"
 
 
 def _add_letterhead(doc: Document):
@@ -299,6 +307,336 @@ def build_notulensi_docx(meeting, transcript_text, ringkasan, keputusan, tindak_
         doc.add_page_break()
         doc.add_heading("Lampiran: Transkripsi Rekaman Rapat", level=2)
         doc.add_paragraph(transcript_text)
+
+    doc.save(output_path)
+    _fix_zoom_schema_quirk(output_path)
+    return output_path
+
+
+# ============================================================
+#  EKSPOR BERBASIS TEMPLATE WORD ASLI (NOTULA_TEMPLATE_PATH)
+# ============================================================
+def _replace_run_text(paragraph, mapping: dict):
+    """Ganti {{token}} di seluruh run sebuah paragraf sekaligus (bukan
+    per-run), karena Word sering memecah satu kalimat visual jadi beberapa
+    <w:r> (mis. akibat pemeriksaan ejaan) - replace per-run naif bisa gagal
+    kalau token terpecah di tengah. Format run pertama dipertahankan, run
+    sisanya dikosongkan (penyederhanaan yang wajar untuk sekadar isi teks)."""
+    full = "".join(r.text for r in paragraph.runs)
+    if not full or "{{" not in full:
+        return
+    for key, val in mapping.items():
+        full = full.replace(key, str(val))
+    if paragraph.runs:
+        paragraph.runs[0].text = full
+        for r in paragraph.runs[1:]:
+            r.text = ""
+    else:
+        paragraph.add_run(full)
+
+
+def _replace_in_cell(cell, mapping: dict):
+    for p in cell.paragraphs:
+        _replace_run_text(p, mapping)
+    # Blok tanda tangan (Kepala/Notulis) ada di tabel BERSARANG di dalam sel
+    # gabungan Pendahuluan/Pembahasan (lihat build_notula_from_template) -
+    # doc.tables python-docx hanya memuat tabel level atas, jadi perlu turun
+    # rekursif ke cell.tables supaya placeholder di dalamnya ikut terganti.
+    for nested in cell.tables:
+        for row in nested.rows:
+            for nested_cell in row.cells:
+                _replace_in_cell(nested_cell, mapping)
+
+
+def _replace_simple_placeholders(doc: Document, mapping: dict):
+    for p in doc.paragraphs:
+        _replace_run_text(p, mapping)
+    for t in doc.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                _replace_in_cell(cell, mapping)
+
+
+def _set_cell_plain_text(cell, text: str):
+    # Pertahankan formatting run pertama (font Times New Roman template
+    # tersimpan langsung di tiap <w:r>, bukan lewat style "Normal" - lihat
+    # docDefaults template yang sebenarnya Calibri) - kalau sel benar-benar
+    # tanpa run sama sekali, set TNR eksplisit sebagai jaring pengaman.
+    p = cell.paragraphs[0]
+    if p.runs:
+        p.runs[0].text = text
+        for r in list(p.runs[1:]):
+            r._element.getparent().remove(r._element)
+    else:
+        run = p.add_run(text)
+        run.font.name = "Times New Roman"
+        run.font.size = Pt(12)
+    for extra in list(cell.paragraphs[1:]):
+        extra._element.getparent().remove(extra._element)
+
+
+def _fill_peserta_rows(table, peserta_list):
+    """Baris ke-3 tabel peserta (index 2, kosong di template) dipakai sebagai
+    pola yang digandakan sesuai jumlah peserta sesungguhnya (2 orang/baris) -
+    baris ke-4 (index 3, kosong juga di template asli) dibuang karena
+    jumlahnya sekarang ditentukan dinamis, bukan tetap 2 baris."""
+    row2, row3, row4 = table.rows[2], table.rows[3], table.rows[4]
+    pattern = deepcopy(row2._tr)
+    anchor = row4._tr
+
+    pairs = []
+    if peserta_list:
+        for i in range(0, len(peserta_list), 2):
+            pairs.append((peserta_list[i], peserta_list[i + 1] if i + 1 < len(peserta_list) else None))
+    else:
+        pairs = [(None, None)]
+
+    row2._tr.getparent().remove(row2._tr)
+    row3._tr.getparent().remove(row3._tr)
+
+    import docx.table as _docx_table
+    for left, right in pairs:
+        new_tr = deepcopy(pattern)
+        anchor.addprevious(new_tr)
+        new_row = _docx_table._Row(new_tr, table)
+        cells = new_row.cells
+        _set_cell_plain_text(cells[0], (left.nama if left else "") or "")
+        _set_cell_plain_text(cells[1], (left.jabatan if left else "") or "")
+        _set_cell_plain_text(cells[2], (right.nama if right else "") or "")
+        _set_cell_plain_text(cells[3], (right.jabatan if right else "") or "")
+
+
+def _find_paragraph(container, token: str):
+    for p in container.paragraphs:
+        if p.text.strip() == token:
+            return p
+    return None
+
+
+def _expand_pembahasan(cell, ringkasan, keputusan, tindak_lanjut, pertanyaan_jawaban, struktur,
+                        gambar_pembahasan=None):
+    target = _find_paragraph(cell, "{{pembahasan}}")
+    if target is None:
+        return
+    anchor = target._p
+    gambar_by_index = {g["index"]: g["paths"] for g in (gambar_pembahasan or []) if g.get("paths")}
+
+    def insert_after(text, bold=False):
+        nonlocal anchor
+        new_p_el = anchor.makeelement(qn("w:p"), {})
+        anchor.addnext(new_p_el)
+        from docx.text.paragraph import Paragraph
+        new_p = Paragraph(new_p_el, target._parent)
+        r = new_p.add_run(text)
+        r.bold = bold
+        # Paragraf ini XML mentah baru (tanpa pPr/rPr) - font TNR template
+        # cuma tersimpan sebagai direct-formatting per-run di teks asli,
+        # bukan lewat style "Normal" (docDefaults template = Calibri), jadi
+        # kalau tidak di-set eksplisit di sini hasilnya jadi Calibri.
+        r.font.name = "Times New Roman"
+        r.font.size = Pt(12)
+        anchor = new_p_el
+        return new_p
+
+    def insert_images_after(paths):
+        # Ukuran dimaksimalkan supaya tetap muat 1 halaman (item #61) - 1
+        # gambar diberi tinggi lebih besar, 2 gambar masing-masing dikecilkan
+        # supaya keduanya + teks sekitarnya tidak meluber ke halaman berikut.
+        nonlocal anchor
+        height_cm = 16 if len(paths) == 1 else 9
+        for filename in paths[:2]:
+            full_path = settings.DOKUMEN_DIR / filename
+            new_p_el = anchor.makeelement(qn("w:p"), {})
+            anchor.addnext(new_p_el)
+            from docx.text.paragraph import Paragraph
+            new_p = Paragraph(new_p_el, target._parent)
+            new_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = new_p.add_run()
+            try:
+                run.add_picture(str(full_path), height=Cm(height_cm))
+            except Exception:
+                run.text = "[Gagal memuat gambar]"
+            anchor = new_p_el
+
+    if struktur == "ringkas":
+        if ringkasan:
+            for i, point in enumerate(ringkasan, start=1):
+                insert_after(f"{i}. {point}")
+                if (i - 1) in gambar_by_index:
+                    insert_images_after(gambar_by_index[i - 1])
+        else:
+            insert_after("Tidak ada poin pembahasan yang tercatat.")
+        insert_after("")
+        insert_after("Pertanyaan dan Jawaban", bold=True)
+        if pertanyaan_jawaban:
+            for item in pertanyaan_jawaban:
+                insert_after(f"T: {item.get('pertanyaan', '')}", bold=True)
+                insert_after(f"J: {item.get('jawaban', '')}")
+        else:
+            insert_after("Tidak ada tanya jawab yang tercatat.")
+    else:
+        if ringkasan:
+            for i, point in enumerate(ringkasan, start=1):
+                insert_after(f"{i}. {point}")
+        else:
+            insert_after("Tidak ada poin pembahasan yang tercatat.")
+        insert_after("")
+        insert_after("Keputusan Rapat", bold=True)
+        if keputusan:
+            for point in keputusan:
+                insert_after(f"- {point}")
+        else:
+            insert_after("Tidak ada keputusan yang tercatat.")
+        insert_after("")
+        insert_after("Tindak Lanjut", bold=True)
+        if tindak_lanjut:
+            for item in tindak_lanjut:
+                pic = item.get("penanggung_jawab") or "-"
+                deadline = item.get("deadline") or "-"
+                insert_after(f"- {item['deskripsi']} (PJ: {pic}, Tenggat: {deadline})")
+        else:
+            insert_after("Tidak ada tindak lanjut yang teridentifikasi.")
+
+    # Paragraf placeholder asli sekarang hanya sisa tanda "{{pembahasan}}" -
+    # hapus, isinya sudah digantikan paragraf-paragraf di atas.
+    target._p.getparent().remove(target._p)
+
+
+def _fill_dokumentasi_template(doc: Document, dokumentasi_files):
+    target = _find_paragraph(doc, "{{dokumentasi}}")
+    if target is None:
+        return
+    if not dokumentasi_files:
+        for r in list(target.runs):
+            r._element.getparent().remove(r._element)
+        run = target.add_run("Tidak ada bukti dokumentasi yang diunggah untuk kegiatan ini.")
+        run.italic = True
+        run.font.name = "Times New Roman"
+        run.font.size = Pt(12)
+        target.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        return
+
+    photos = list(dokumentasi_files)
+    rows_needed = (len(photos) + 1) // 2
+    table = doc.add_table(rows=rows_needed, cols=2)
+    idx = 0
+    for r in range(rows_needed):
+        for c in range(2):
+            if idx >= len(photos):
+                break
+            cell = table.rows[r].cells[c]
+            para = cell.paragraphs[0]
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = para.add_run()
+            try:
+                run.add_picture(str(photos[idx]["path"]), width=Cm(7))
+            except Exception:
+                para.add_run("[Gagal memuat gambar]")
+            if photos[idx].get("keterangan"):
+                cap = cell.add_paragraph(photos[idx]["keterangan"])
+                cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                if cap.runs:
+                    cap.runs[0].italic = True
+                    cap.runs[0].font.size = Pt(9)
+                    cap.runs[0].font.name = "Times New Roman"
+            idx += 1
+
+    # Tabel baru otomatis ditambahkan python-docx di AKHIR dokumen - pindahkan
+    # ke posisi placeholder "{{dokumentasi}}" lalu buang paragraf placeholder-nya.
+    target._p.addnext(table._tbl)
+    target._p.getparent().remove(target._p)
+
+
+def _find_paragraph_in_cell(cell, token: str):
+    for p in cell.paragraphs:
+        if token in p.text:
+            return p
+    for nested in cell.tables:
+        for row in nested.rows:
+            for nested_cell in row.cells:
+                found = _find_paragraph_in_cell(nested_cell, token)
+                if found is not None:
+                    return found
+    return None
+
+
+def _find_paragraph_anywhere(doc, token: str):
+    for p in doc.paragraphs:
+        if token in p.text:
+            return p
+    for t in doc.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                found = _find_paragraph_in_cell(cell, token)
+                if found is not None:
+                    return found
+    return None
+
+
+def _insert_ttd_image(doc, token: str, image_path):
+    """Sisipkan gambar tanda tangan digital (kalau ada) di paragraf baru TEPAT
+    SEBELUM paragraf yang memuat token nama (mis. {{notulis_nama}}) - harus
+    dipanggil SEBELUM _replace_simple_placeholders() supaya token masih ada
+    untuk dicari (fungsi itu mengganti isi teksnya, bukan menghapus paragraf)."""
+    if not image_path:
+        return
+    target = _find_paragraph_anywhere(doc, token)
+    if target is None:
+        return
+    from docx.text.paragraph import Paragraph
+    new_p_el = target._p.makeelement(qn("w:p"), {})
+    target._p.addprevious(new_p_el)
+    new_p = Paragraph(new_p_el, target._parent)
+    new_p.alignment = target.alignment
+    run = new_p.add_run()
+    try:
+        run.add_picture(str(image_path), height=Cm(1.5))
+    except Exception:
+        pass
+
+
+def build_notula_from_template(meeting, ringkasan, keputusan, tindak_lanjut, peserta_list,
+                                notulis, kepala, dokumentasi_files, output_path: Path,
+                                struktur: str = "ringkas", pendahuluan_text: str = None,
+                                pertanyaan_jawaban=None, notulis_ttd_path=None, pimpinan_ttd_path=None,
+                                gambar_pembahasan=None):
+    """Versi ekspor yang mengisi Template_Notula_Rapat.docx resmi BPS Kabupaten
+    Sanggau langsung (lewat NOTULA_TEMPLATE_PATH, salinan berplaceholder dari
+    file itu) alih-alih membangun dokumen dari nol seperti
+    build_notulensi_docx() - hasil visualnya jadi identik dengan template Word
+    asli (kop surat, font, gaya tabel bawaan file itu sendiri)."""
+    if not NOTULA_TEMPLATE_PATH.exists():
+        raise RuntimeError(f"Template notula tidak ditemukan: {NOTULA_TEMPLATE_PATH}")
+    doc = Document(str(NOTULA_TEMPLATE_PATH))
+
+    judul_upper = (meeting.judul_rapat or "").upper()
+    unit_kerja = meeting.unit_kerja or settings.UNIT_KERJA_DEFAULT
+    # "Kota, tanggal" pada blok tanda tangan - kota diambil dari kata terakhir
+    # nama unit kerja, sama seperti build_notulensi_docx()/_tanda_tangan().
+    kota = unit_kerja.split(" ")[-1]
+    # Sisipkan gambar ttd (kalau ada) SEBELUM penggantian placeholder teks -
+    # {{kepala_nama}} dipakai sebagai slot "Mengetahui" (kiri, otoritas
+    # persetujuan) untuk ttd Pimpinan Rapat; {{notulis_nama}} untuk ttd Notulis.
+    _insert_ttd_image(doc, "{{kepala_nama}}", pimpinan_ttd_path)
+    _insert_ttd_image(doc, "{{notulis_nama}}", notulis_ttd_path)
+    _replace_simple_placeholders(doc, {
+        "{{judul_rapat_upper}}": judul_upper,
+        "{{unit_kerja_upper}}": unit_kerja.upper(),
+        "{{unit_kerja}}": unit_kerja,
+        "{{tanggal}}": format_tanggal_singkat(meeting.tanggal),
+        "{{topik}}": meeting.judul_rapat or "-",
+        "{{tempat}}": meeting.lokasi or "-",
+        "{{pendahuluan}}": pendahuluan_text or "",
+        "{{notulis_nama}}": notulis.nama if notulis else "-",
+        "{{kepala_nama}}": kepala.nama if kepala else "-",
+        "{{tempat_tanggal}}": f"{kota}, {format_tanggal_singkat(meeting.tanggal)}",
+    })
+
+    _fill_peserta_rows(doc.tables[1], peserta_list)
+    _expand_pembahasan(doc.tables[1].rows[-1].cells[0], ringkasan, keputusan,
+                        tindak_lanjut, pertanyaan_jawaban or [], struktur,
+                        gambar_pembahasan=gambar_pembahasan)
+    _fill_dokumentasi_template(doc, dokumentasi_files)
 
     doc.save(output_path)
     _fix_zoom_schema_quirk(output_path)

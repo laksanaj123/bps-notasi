@@ -80,40 +80,44 @@ def _split_audio(ffmpeg: str, file_path: Path, chunk_seconds: int, out_dir: Path
     return chunk_paths
 
 
-def _transcribe_chunk_worker(chunk_path_str: str) -> str:
+def _transcribe_chunk_worker(chunk_path_str: str, return_segments: bool = False):
     """Dijalankan di proses worker terpisah. Import di dalam fungsi supaya
     tiap proses hanya memuat apa yang dibutuhkannya (dan model Whisper-nya
     sendiri, lazy, lewat singleton milik proses tsb - lihat transcription.py)."""
     from .transcription import _transcribe_local_raw
-    return _transcribe_local_raw(Path(chunk_path_str))
+    return _transcribe_local_raw(Path(chunk_path_str), return_segments=return_segments)
 
 
-def transcribe_local_chunked(file_path: Path, progress_cb=None) -> str:
+def transcribe_local_chunked(file_path: Path, progress_cb=None, return_segments: bool = False):
     """Mentranskripsi `file_path` memakai chunking paralel bila memenuhi
     syarat (ffmpeg tersedia & audio cukup panjang), jika tidak otomatis
     kembali ke transkripsi satu-proses biasa.
 
     progress_cb(fraction: float, stage: str) dipanggil dengan fraction 0..1
     tiap kali satu potongan selesai, jika diberikan.
+
+    return_segments=True mengembalikan tuple (teks, segments) - timestamp
+    tiap segmen diberi offset sesuai posisi potongannya supaya tetap relatif
+    ke keseluruhan berkas audio, bukan ke awal potongan masing-masing.
     """
     from .transcription import _transcribe_local_raw
 
     if not settings.WHISPER_CHUNK_ENABLED:
-        return _transcribe_local_raw(file_path)
+        return _transcribe_local_raw(file_path, return_segments=return_segments, progress_cb=progress_cb)
 
     exes = _ffmpeg_available()
     if not exes:
-        return _transcribe_local_raw(file_path)
+        return _transcribe_local_raw(file_path, return_segments=return_segments, progress_cb=progress_cb)
     ffmpeg, ffprobe = exes
 
     try:
         duration = _get_duration_seconds(ffprobe, file_path)
     except Exception:
-        return _transcribe_local_raw(file_path)
+        return _transcribe_local_raw(file_path, return_segments=return_segments, progress_cb=progress_cb)
 
     threshold_seconds = settings.WHISPER_CHUNK_THRESHOLD_MINUTES * 60
     if duration <= threshold_seconds:
-        return _transcribe_local_raw(file_path)
+        return _transcribe_local_raw(file_path, return_segments=return_segments, progress_cb=progress_cb)
 
     chunk_seconds = max(60, settings.WHISPER_CHUNK_MINUTES * 60)
     workers = max(1, settings.WHISPER_CHUNK_WORKERS)
@@ -123,14 +127,14 @@ def transcribe_local_chunked(file_path: Path, progress_cb=None) -> str:
         chunk_paths = _split_audio(ffmpeg, file_path, chunk_seconds, tmp_dir, duration)
         n = len(chunk_paths)
         if n <= 1:
-            return _transcribe_local_raw(file_path)
+            return _transcribe_local_raw(file_path, return_segments=return_segments, progress_cb=progress_cb)
 
-        results: list[str | None] = [None] * n
+        results: list = [None] * n
         completed = 0
 
         with ProcessPoolExecutor(max_workers=min(workers, n)) as executor:
             future_to_idx = {
-                executor.submit(_transcribe_chunk_worker, str(p)): i
+                executor.submit(_transcribe_chunk_worker, str(p), return_segments): i
                 for i, p in enumerate(chunk_paths)
             }
             for future in as_completed(future_to_idx):
@@ -140,4 +144,17 @@ def transcribe_local_chunked(file_path: Path, progress_cb=None) -> str:
                 if progress_cb:
                     progress_cb(completed / n, f"Transkripsi potongan {completed}/{n} audio")
 
-        return " ".join(r.strip() for r in results if r)
+        if not return_segments:
+            return " ".join(r.strip() for r in results if r)
+
+        texts = []
+        all_segments = []
+        for idx, r in enumerate(results):
+            if not r:
+                continue
+            text, segs = r
+            texts.append(text.strip())
+            offset = idx * chunk_seconds
+            for s in segs:
+                all_segments.append({"start": s["start"] + offset, "end": s["end"] + offset, "text": s["text"]})
+        return " ".join(texts), all_segments

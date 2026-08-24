@@ -110,7 +110,7 @@
     #app-shell { display: none; }
     .fun-msg { transition: opacity .45s ease; min-height: 1.5rem; }
     .fun-msg.fade { opacity: 0; }
-    #ring-fg, #mini-ring-fg { transition: stroke-dashoffset .8s ease; }
+    #ring-fg, #mini-ring-fg, #rw-ring-fg { transition: stroke-dashoffset .8s ease; }
     .modal-overlay { background: rgba(0,0,0,.45); }
 
     /* Toast notifikasi (pengganti alert()) */
@@ -136,6 +136,11 @@
     .ed-in:focus { background: #EFF6FF; border-radius: 3px; }
     .ed-line:focus { background: #EFF6FF; }
     .ed-line:empty:before { content: attr(data-placeholder); color: #9ca3af; }
+    /* Isian form notula (pembahasan/tanya-jawab via .ed-in/.ed-line, dan
+       textarea Pendahuluan) dibuat Times New Roman - font yang sama dengan
+       notula_template.docx - supaya isian yang diketik terasa konsisten
+       dengan dokumen Word hasil akhirnya, bukan font UI aplikasi (sans-serif). */
+    .ed-in, .ed-line, .notula-field-font { font-family: "Times New Roman", Times, serif; }
 
     /* Polesan input tanggal/waktu & dropdown - kotak tertutup + ikon bisa
        dipoles lewat CSS, tapi popup kalender/daftar opsi sendiri dirender
@@ -392,7 +397,11 @@
     .dtab-badge { font-size: .65rem; padding: .05rem .4rem; border-radius: 9999px; background: rgba(13,71,161,.12); color: var(--notasi-navy); font-weight: 600; }
     .dtab-badge:empty { display: none; }
     .dtab-panel { display: none; }
-    .dtab-panel.active { display: block; }
+    /* Setiap panel step (Informasi/Peserta/Dokumen/Rekaman/Notula) dipusatkan
+       dalam lebar yang sama & konsisten, supaya form tidak menempel ke kiri
+       dan tombol navigasi bawah (#rd-wizard-nav, lebar sama) sejajar pas
+       dengan tepi kanan/kiri form - lihat item "Form wizard harus di tengah". */
+    .dtab-panel.active { display: block; max-width: 56rem; margin-left: auto; margin-right: auto; }
 
     /* Toggle switch (ON/OFF) - dipakai Knowledge Base (aktif/nonaktif dokumen,
        pengaturan generate notula) menggantikan checkbox polos. */
@@ -457,8 +466,15 @@
       <div class="absolute bottom-0 right-0 w-[28rem] h-[28rem] rounded-full bg-blue-400/20 blur-3xl"></div>
       <div class="relative z-10 max-w-md mx-auto">
         <!-- Panel ini selalu berlatar navy terlepas dari toggle mode situs -
-             pakai varian teks putih (Dark Mode) supaya selalu terbaca jelas. -->
-        <img src="/assets/notasi_lockup_dark.png" alt="NOTASI - Notula Otomatis Berbasis AI" class="w-full h-auto">
+             pakai varian ikon putih (Dark Mode) supaya selalu terbaca jelas. -->
+        <div class="flex items-center gap-4 mb-4">
+          <img src="/assets/notasi_logo_dark.png" alt="NOTASI" class="w-14 h-14 flex-shrink-0">
+          <div>
+            <h1 class="text-3xl font-bold text-white leading-tight">NOTASI</h1>
+            <p class="text-sm text-blue-100 leading-tight">Notula Otomatis Berbasis AI</p>
+          </div>
+        </div>
+        <p class="text-xs tracking-widest text-blue-200 uppercase">BPS Kabupaten Sanggau</p>
       </div>
     </div>
 
@@ -510,9 +526,9 @@
   <div id="app-shell" class="min-h-screen flex">
     <aside id="app-sidebar" class="w-64 min-h-screen flex-shrink-0 flex flex-col border-r-2 border-gray-200 bg-white">
       <button type="button" onclick="showPage('dashboard')" title="Ke Dashboard"
-              class="p-6 border-b border-gray-100 flex items-center gap-3 text-left hover:bg-gray-50 transition-colors">
-        <img src="/assets/notasi_logo_light.png" alt="NOTASI" class="logo-light w-9 h-9 flex-shrink-0">
-        <img src="/assets/notasi_logo_dark.png" alt="NOTASI" class="logo-dark w-9 h-9 flex-shrink-0">
+              class="p-6 flex items-center gap-3 text-left hover:bg-black/5 transition-colors">
+        <img src="/assets/notasi_logo_light.png" alt="NOTASI" class="logo-light h-10 w-auto flex-shrink-0">
+        <img src="/assets/notasi_logo_dark.png" alt="NOTASI" class="logo-dark h-10 w-auto flex-shrink-0">
         <div>
           <h1 class="text-lg font-bold text-gray-800 leading-tight">NOTASI</h1>
           <p class="text-[11px] opacity-60 leading-tight">Notula Otomatis Berbasis AI</p>
@@ -531,6 +547,7 @@
       <nav class="flex-1 p-4 space-y-1 mt-1">
         <button onclick="showPage('dashboard')" class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-nav="dashboard"><i data-lucide="layout-dashboard" style="width:18px;height:18px"></i><span>Dashboard</span></button>
         <button onclick="showPage('rapat-list')" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-nav="rapat-list"><i data-lucide="calendar-clock" style="width:18px;height:18px"></i><span class="flex-1 text-left">Rapat</span><span class="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">BARU</span></button>
+        <button onclick="showPage('kelengkapan')" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-nav="kelengkapan"><i data-lucide="clipboard-check" style="width:18px;height:18px"></i><span class="flex-1 text-left">Kelengkapan Rapat</span></button>
         <button onclick="showPage('arsip')" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-nav="arsip"><i data-lucide="folder" style="width:18px;height:18px"></i><span>Arsip Notula</span></button>
         <button onclick="showPage('kb')" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-nav="kb" data-roles="admin"><i data-lucide="library" style="width:18px;height:18px"></i><span class="flex-1 text-left">Knowledge Base</span><span class="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold">PRATINJAU</span></button>
         <button onclick="showPage('pengguna')" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-nav="pengguna" data-roles="admin"><i data-lucide="users" style="width:18px;height:18px"></i><span>Kelola Pengguna</span></button>
@@ -573,7 +590,7 @@
               <i data-lucide="chevron-down" style="width:14px;height:14px" class="text-gray-400"></i>
             </button>
             <div id="profile-menu" class="hidden absolute right-0 top-full mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-1.5 text-sm z-20">
-              <button type="button" onclick="toggleNotulisView()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center gap-2.5">
+              <button type="button" id="profile-role-switch-btn" onclick="toggleNotulisView()" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center gap-2.5">
                 <i data-lucide="user-cog" style="width:15px;height:15px;color:#6b7280"></i>
                 <span id="profile-role-switch-label">Tampil sebagai Notulis</span>
               </button>
@@ -936,11 +953,11 @@
         <!-- ============ KNOWLEDGE BASE (RAG) - pratinjau UI, data mock ============ -->
         <div class="page" id="page-kb">
           <div class="page-header-row flex items-start justify-between mb-2 gap-3 flex-wrap">
-            <p class="text-xs text-gray-500 max-w-2xl">
+            <!-- <p class="text-xs text-gray-500 max-w-2xl">
               Dokumen referensi dan riwayat rapat di sini nantinya dipakai sebagai
               <strong>konteks pendukung</strong> saat menyusun notula - transkrip rapat tetap menjadi sumber
               utama. Halaman ini masih pratinjau tampilan; proses index/pencarian sungguhan belum aktif.
-            </p>
+            </p> -->
           </div>
 
           <div class="inline-flex flex-wrap gap-1 p-1 bg-gray-100 rounded-xl mb-5" id="kb-tabs">
@@ -1136,10 +1153,10 @@
               </div>
             </div>
 
-            <div id="pengaturan-admin" class="hidden space-y-4">
+            <div id="pengaturan-admin" class="hidden space-y-2">
               <hr>
-              <h3 class="font-semibold text-gray-800">Ganti Mode AI</h3>
-              <p class="text-xs text-gray-500">Berlaku langsung, tanpa perlu restart server.</p>
+              <h3 class="font-semibold text-gray-800 text-sm">Ganti Mode AI</h3>
+              <p class="text-xs text-gray-400">Berlaku langsung, tanpa perlu restart server.</p>
               <div id="pengaturan-msg" class="hidden text-sm rounded-lg px-4 py-2"></div>
               <div class="grid grid-cols-3 gap-3">
                 <button type="button" onclick="terapkanModeAI('demo')"
@@ -1205,18 +1222,15 @@
             <hr>
             <div class="space-y-2">
               <div class="flex items-center gap-2">
-                <h3 class="font-semibold text-gray-800">Mesin AI Knowledge Base (RAG)</h3>
+                <h3 class="font-semibold text-gray-800 text-sm">Knowledge Base</h3>
                 <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold">PRATINJAU</span>
               </div>
               <div class="flex items-start gap-2.5 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
                 <i data-lucide="info" style="width:15px;height:15px;color:#1976D2" class="flex-shrink-0 mt-0.5"></i>
                 <p class="text-xs text-blue-700 leading-relaxed">
                   Retrieval-Augmented Generation (RAG) akan mengambil potongan teks paling relevan dari
-                  <strong>Dokumen Referensi</strong> dan <strong>Riwayat Rapat</strong> (lihat menu Knowledge Base)
-                  sebagai konteks pendukung saat menyusun notula - transkrip rapat tetap satu-satunya sumber
-                  utama. Pencarian konteks direncanakan berjalan lokal lewat model embedding di Ollama
-                  (tanpa API berbayar/cloud), sejalan dengan mode "Gratis (Lokal)" di atas. Mesin ini belum
-                  aktif - halaman Knowledge Base saat ini masih pratinjau tampilan dengan data contoh.
+                  <strong>Dokumen Referensi</strong> dan <strong>Riwayat Rapat</strong>
+                  sebagai konteks pendukung saat menyusun notula.
                 </p>
               </div>
             </div>
@@ -1305,8 +1319,8 @@
               <thead class="bg-gray-50">
                 <tr class="text-left text-gray-500">
                   <th class="p-4 w-10"><input type="checkbox" id="pengguna-select-all" onchange="toggleSelectAllPengguna(this.checked)"></th>
-                  <th class="p-4">Nama</th><th class="p-4">Username</th><th class="p-4">Jabatan</th>
-                  <th class="p-4">Peran</th><th class="p-4">Status</th><th class="p-4">Aksi</th>
+                  <th class="p-4">Nama</th>
+                  <th class="p-4">Peran</th><th class="p-4">Aksi</th>
                 </tr>
               </thead>
               <tbody id="pengguna-list"></tbody>
@@ -1373,6 +1387,57 @@
           </div>
         </div>
 
+        <!-- ============ KELENGKAPAN RAPAT (matriks Rapat x kategori dokumen) ============ -->
+        <div class="page" id="page-kelengkapan">
+          <div class="page-header-row flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <div class="relative flex-1 min-w-[240px] max-w-md">
+              <i data-lucide="search" style="width:16px;height:16px" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"></i>
+              <input id="kelengkapan-search" type="text" placeholder="Cari Judul Rapat" oninput="renderKelengkapanTable()"
+                     class="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+          </div>
+
+          <p id="kelengkapan-loading" class="text-sm text-gray-400 p-2">Memuat data rapat...</p>
+          <div class="card overflow-hidden">
+            <div class="table-scroll">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50">
+                <tr class="text-left text-gray-500">
+                  <th class="p-4">Judul Rapat</th>
+                  <th class="p-4">Tanggal</th>
+                  <th class="p-4">Kelengkapan</th>
+                  <th class="p-4">Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="kelengkapan-list"></tbody>
+            </table>
+            </div>
+            <p id="kelengkapan-empty" class="hidden text-sm text-gray-400 p-6 text-center">Belum ada rapat.</p>
+          </div>
+        </div>
+
+        <!-- Popup info rapat ringkas (dari Kelengkapan Rapat) - integrasi ke "Rapat" lewat tombol "Buka Rapat", judul TIDAK dijadikan hyperlink langsung -->
+        <div id="rapat-info-modal" class="hidden modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+            <div id="rapat-info-modal-body" class="text-sm"></div>
+            <div class="flex items-center justify-end gap-2 mt-5">
+              <button type="button" onclick="tutupInfoRapatModal()" class="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Tutup</button>
+              <button id="rapat-info-modal-buka-btn" type="button" class="btn-primary px-4 py-2 rounded-xl text-sm font-medium">Buka Rapat</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal kelengkapan (unggah 5 kategori sekaligus per rapat, atau lihat-saja untuk yang bukan notulis) -->
+        <div id="kelengkapan-modal" class="hidden modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 max-h-[85vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+              <h3 id="kelengkapan-modal-judul" class="font-bold text-base"></h3>
+              <button type="button" onclick="tutupKelengkapanModal()" class="icon-btn text-gray-400"><i data-lucide="x" style="width:18px;height:18px"></i></button>
+            </div>
+            <div id="kelengkapan-modal-body" class="space-y-3"></div>
+          </div>
+        </div>
+
         <!-- ============ RAPAT (alur baru) - DETAIL RAPAT ============ -->
         <div class="page" id="page-rapat-detail">
           <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -1392,7 +1457,7 @@
 
           <!-- Wizard langkah (item 43 - bukan lagi tab datar) - diisi JS lewat
                renderRdWizardSteps(), lihat definisi RAPAT_TAB_STEPS. -->
-          <div class="flex items-center flex-wrap max-w-3xl mb-6" id="rd-tabs"></div>
+          <div class="flex items-center flex-wrap max-w-4xl mx-auto mb-6" id="rd-tabs"></div>
 
           <!-- TAB: Informasi -->
           <div class="dtab-panel active" data-rpanel="informasi" id="rpanel-informasi"></div>
@@ -1406,7 +1471,7 @@
           <div class="dtab-panel" data-rpanel="notula" id="rpanel-notula"></div>
 
           <!-- Navigasi wizard (Sebelumnya/Selanjutnya) - diisi renderRdWizardNav() -->
-          <div id="rd-wizard-nav" class="flex items-center justify-between mt-6 max-w-3xl"></div>
+          <div id="rd-wizard-nav" class="flex items-center justify-between mt-6 max-w-[56rem] mx-auto"></div>
         </div>
 
         <!-- ============ RAPAT (alur baru) - WIZARD BUAT RAPAT (4 langkah) ============ -->
@@ -1692,12 +1757,18 @@
       document.documentElement.style.setProperty("--role-gradient", roleTheme.gradient);
     }
     function renderProfileRoleSwitch() {
+      const btn = document.getElementById("profile-role-switch-btn");
       const label = document.getElementById("profile-role-switch-label");
-      if (!label || !currentUser) return;
+      if (!btn || !label || !currentUser) return;
+      // Admin sudah bisa langsung "Buat Notula"/"Buat Rapat" tanpa perlu
+      // berganti tampilan - switch ke Notulis hanya relevan untuk pegawai.
+      btn.classList.toggle("hidden", currentUser.role === "admin");
       label.textContent = getDisplayRole() === "notulis"
         ? `Kembali ke tampilan ${ROLE_LABEL[currentUser.role]}`
         : "Tampil sebagai Notulis";
     }
+    function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
     async function toggleNotulisView() {
       document.getElementById("profile-menu").classList.add("hidden");
       const isNotulis = getDisplayRole() === "notulis";
@@ -1706,10 +1777,18 @@
         ? `Kembali ke tampilan ${ROLE_LABEL[currentUser.role]}? Ini hanya menyesuaikan tampilan menu.`
         : "Ganti tampilan ke Notulis? Ini hanya menyesuaikan tampilan menu, bukan mengubah hak akses Anda - tidak perlu kata sandi.";
       if (!await showConfirm(msg, { okLabel: "Ya, Ganti" })) return;
+      showProcessing(`Mengganti tampilan ke ${ROLE_LABEL[target]}...`);
+      await sleep(300);
       setDisplayRole(target);
       applyRoleTheme(target);
       applyRoleVisibility();
       renderProfileRoleSwitch();
+      const rapatBuatBtn = document.getElementById("rapat-buat-btn");
+      if (rapatBuatBtn) {
+        rapatBuatBtn.classList.toggle("hidden", !canCreateRapat());
+        document.getElementById("rapat-buat-notula-btn").classList.toggle("hidden", !canCreateRapat());
+      }
+      hideProcessing();
       showToast(`Tampilan diganti ke ${ROLE_LABEL[target]}.`, "success");
     }
     // Hak tulis kasar (tampilkan/sembunyikan tombol) - siapapun yang login
@@ -1724,6 +1803,16 @@
       if (!currentUser) return false;
       if (currentUser.role === "admin") return true;
       return !!(meeting && meeting.notulis && meeting.notulis.id === currentUser.id);
+    }
+    // Fitur "Buat Notula"/"Buat Rapat" - admin selalu boleh; pegawai hanya
+    // saat tampilan sedang diganti ke Notulis (lihat toggleNotulisView()),
+    // bukan otomatis untuk semua pegawai yang login.
+    function canCreateRapat() {
+      // Pegawai yang pernah ditunjuk notulis di rapat manapun (backend
+      // /api/auth/me -> pernah_notulis) dapat tombol ini otomatis, seperti
+      // admin - toggle manual "Tampil sebagai Notulis" tetap ada untuk
+      // pegawai lain yang ingin mencoba tampilan tanpa histori itu.
+      return !!currentUser && (currentUser.role === "admin" || currentUser.pernah_notulis || getDisplayRole() === "notulis");
     }
 
     // Sembunyikan item navigasi yang tidak sesuai peran pengguna (UX saja -
@@ -1755,6 +1844,15 @@
 
     function escapeHtml(str) {
       return (str || "").toString().replace(/[&<>"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[s]));
+    }
+
+    // Cuplikan singkat (bukan seluruh teks) - dipakai untuk pratinjau ringan
+    // seperti transkrip per-pembicara, supaya halaman tidak berat memuat
+    // teks panjang yang datanya sendiri sudah lengkap di transkrip utama.
+    function ringkasTeks(str, maxLen) {
+      const teks = (str || "").toString().trim();
+      if (teks.length <= maxLen) return teks;
+      return teks.slice(0, teks.lastIndexOf(" ", maxLen)).trim() + "…";
     }
 
     // ============================================================
@@ -1966,9 +2064,19 @@
     function pegawaiOptionsHtml() {
       return pegawaiList.map(p => `<option value="${p.id}">${escapeHtml(p.nama)}</option>`).join("");
     }
+    // Admin tidak perlu ditawarkan sebagai Notulis - admin sudah punya akses penuh
+    // lewat menu "Buat Notula"/"Buat Rapat" sendiri. includeId menjaga notulis admin
+    // yang SUDAH ditugaskan (sebelum aturan ini ada) tetap terlihat saat form diedit,
+    // supaya tidak diam-diam berganti notulis begitu form dibuka.
+    function notulisOptionsHtml(includeId) {
+      return pegawaiList.filter(p => p.role !== "admin" || p.id === includeId)
+        .map(p => `<option value="${p.id}">${escapeHtml(p.nama)}</option>`).join("");
+    }
     function pesertaChecklistHtml(cls, excludeIds) {
       const exclude = new Set(excludeIds || []);
-      return pegawaiList.filter(p => !exclude.has(p.id)).map(p => `
+      // Administrator bukan pegawai sungguhan yang menghadiri rapat - sama
+      // seperti notulisOptionsHtml(), tidak perlu muncul sebagai pilihan peserta.
+      return pegawaiList.filter(p => p.role !== "admin" && !exclude.has(p.id)).map(p => `
         <label class="flex items-center gap-2 text-sm p-2 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
           <input type="checkbox" class="${cls}" value="${p.id}">
           <span class="flex-1">${escapeHtml(p.nama)}</span>
@@ -2006,7 +2114,7 @@
     function populatePegawaiForm() {
       const opts = pegawaiOptionsHtml();
       document.getElementById("f-pimpinan").innerHTML = opts;
-      document.getElementById("f-notulis").innerHTML = opts;
+      document.getElementById("f-notulis").innerHTML = notulisOptionsHtml();
       document.getElementById("f-peserta-list").innerHTML = pesertaChecklistHtml("peserta-check");
     }
 
@@ -2018,6 +2126,7 @@
       preview: "Pratinjau Notula", editor: "Editor Notula", pengaturan: "Pengaturan",
       pengguna: "Kelola Pengguna", peserta: "Kelola Peserta Rapat",
       "rapat-list": "Rapat", "rapat-detail": "Detail Rapat", "rapat-wizard": "Buat Rapat",
+      kelengkapan: "Kelengkapan Rapat",
     };
     // Halaman yang bukan level teratas (mis. Pratinjau/Editor dibuka dari Arsip) -
     // dipakai untuk menyusun jejak breadcrumb.
@@ -2042,6 +2151,12 @@
       // lewat console) oleh role pegawai (lihat item 34/37 requirement).
       if ((id === "kb" || id === "pengguna") && currentUser && currentUser.role !== "admin") {
         id = "dashboard";
+      }
+      // Pertahanan berlapis - tombol "Buat Notula"/"Buat Rapat"/"Buat Baru"
+      // sudah disembunyikan lewat canCreateRapat()/data-roles, tapi cegah
+      // juga akses langsung oleh pegawai yang belum ganti tampilan ke Notulis.
+      if ((id === "buat" || id === "rapat-wizard") && currentUser && !canCreateRapat()) {
+        id = "rapat-list";
       }
       document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
       document.getElementById("page-" + id).classList.add("active");
@@ -2068,6 +2183,7 @@
       if (id === "pengaturan") loadPengaturanPage();
       if (id === "pengguna") loadPenggunaPage();
       if (id === "rapat-list") loadRapatList();
+      if (id === "kelengkapan") loadKelengkapanRapat();
     }
 
     // ============================================================
@@ -2169,7 +2285,15 @@
       const textEl = document.getElementById("rd-caption-text");
       liveFinalText = "";
       liveLastFinalAt = 0;
-      textEl.textContent = "";
+      // Dua node terpisah - "final" HANYA ditambah (append), "interim" DIGANTI
+      // (replace) - supaya tiap event onresult tidak perlu me-render ulang
+      // seluruh transkrip yang sudah terkumpul (bisa ribuan karakter di rapat
+      // panjang). Render ulang penuh tiap event itulah yang bikin pratinjau
+      // makin lag makin lama rapat berjalan (lihat keluhan "visualisasi STT
+      // agak lag") - append saja jauh lebih murah dan tetap terasa realtime.
+      textEl.innerHTML = `<span id="rd-caption-final"></span><span id="rd-caption-interim" class="text-gray-400 italic"></span>`;
+      const finalEl = document.getElementById("rd-caption-final");
+      const interimEl = document.getElementById("rd-caption-interim");
       wrap.classList.remove("hidden");
       speechRecognizer = new SpeechRecognitionCtor();
       speechRecognizer.lang = "id-ID";
@@ -2192,16 +2316,17 @@
               if (jeda > 2500) sep = ". ";
               else if (jeda > 900) sep = ", ";
             }
+            const hadText = !!liveFinalText;
             liveLastFinalAt = now;
             let chunk = transcript;
-            if (sep === ". " || !liveFinalText) chunk = chunk.charAt(0).toUpperCase() + chunk.slice(1);
-            liveFinalText = liveFinalText ? liveFinalText + sep + chunk : chunk;
+            if (sep === ". " || !hadText) chunk = chunk.charAt(0).toUpperCase() + chunk.slice(1);
+            liveFinalText += (hadText ? sep : "") + chunk;
+            finalEl.appendChild(document.createTextNode((hadText ? sep : "") + chunk));
           } else {
             interim += transcript;
           }
         }
-        const sepBeforeInterim = liveFinalText && interim ? " " : "";
-        textEl.innerHTML = escapeHtml(liveFinalText) + sepBeforeInterim + `<span class="text-gray-400 italic">${escapeHtml(interim)}</span>`;
+        interimEl.textContent = (liveFinalText && interim ? " " : "") + interim;
         textEl.scrollTop = textEl.scrollHeight;
       };
       speechRecognizer.onerror = () => {};
@@ -2255,7 +2380,10 @@
     // dipakai bersama), rekaman & peserta memakai ulang fungsi yang sama persis.
     // ============================================================
     let rwStep = 1;
-    let rwPesertaAdded = new Set();
+    // Map user_id (pegawai) -> id baris MeetingPeserta, supaya peserta yang
+    // dicentang lalu DIBATALKAN centangnya bisa dihapus lagi dari rapat
+    // (bukan cuma ditambahkan) - lihat rwStep2Submit().
+    let rwPesertaAdded = new Map();
 
     function goToRwStep(n) {
       rwStep = n;
@@ -2284,7 +2412,6 @@
       rwStep = 1;
       currentRapatId = null;
       currentRapat = null;
-      rwPesertaAdded = new Set();
       document.getElementById("rw-judul").value = "";
       document.getElementById("rw-tanggal").value = "";
       document.getElementById("rw-unit-kerja").value = "";
@@ -2297,6 +2424,7 @@
       document.getElementById("rw-peserta-error").classList.add("hidden");
       document.getElementById("rw-rekaman-box").innerHTML = "";
       document.getElementById("rw-notula-body").innerHTML = "";
+      rwPesertaAdded = new Map();
       goToRwStep(1);
     }
 
@@ -2338,11 +2466,18 @@
       if (ids.length === 0) { errEl.classList.remove("hidden"); return; }
       errEl.classList.add("hidden");
       try {
+        // Peserta yang sebelumnya sudah ditambahkan tapi centangnya sekarang
+        // dilepas - hapus lagi dari rapat, bukan cuma dibiarkan di server.
+        for (const pid of Array.from(rwPesertaAdded.keys())) {
+          if (ids.includes(pid)) continue;
+          await api(`/api/rapat/${currentRapatId}/peserta/${rwPesertaAdded.get(pid)}`, { method: "DELETE" });
+          rwPesertaAdded.delete(pid);
+        }
         for (const pid of ids) {
           if (rwPesertaAdded.has(pid)) continue;
-          await api(`/api/rapat/${currentRapatId}/peserta`, { method: "POST", headers: { "Content-Type": "application/json" },
+          const p = await api(`/api/rapat/${currentRapatId}/peserta`, { method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_id: pid }) });
-          rwPesertaAdded.add(pid);
+          rwPesertaAdded.set(pid, p.id);
         }
         if (currentRapat.lifecycle_status === "draft" || currentRapat.lifecycle_status === "dijadwalkan") {
           currentRapat = await api(`/api/rapat/${currentRapatId}/mulai`, { method: "POST" });
@@ -2382,21 +2517,119 @@
     }
 
     function rwPipelineStatus(text) {
-      const el = document.getElementById("rw-pipeline-status");
+      const el = document.getElementById("rw-stage-text");
       if (el) el.textContent = text;
     }
+
+    // Animasi progres wizard "Buat Rapat" (lingkaran + kata-kata bergilir) -
+    // versi terikat-id-sendiri (rw-*) dari lingkaran "Buat Notula" (lihat
+    // setRing()/updateProgressPhase()/startFunMessages() & RING_C/
+    // FUN_MESSAGES_STT/FUN_MESSAGES_LLM di bagian "PROGRESS RING" di bawah),
+    // dijalankan berdampingan tanpa bentrok karena beda id elemen & interval.
+    let rwFunTimer = null, rwFunIdx = 0, rwProgressPhase = null, rwProgressPoll = null;
+    // Beda dari alur "Buat Notula" lama (satu thread, progress 0-100 kontinu
+    // untuk STT+LLM sekaligus - lihat _run_ai_pipeline di main.py), wizard
+    // "Buat Rapat" memanggil transkripsi/proses & notula/generate sebagai DUA
+    // thread terpisah yang masing-masing melapor progress 0-100 sendiri (lihat
+    // _set_progress di routers/rapat.py) - jadi fase (stt/llm) ditentukan
+    // eksplisit dari tahap pipeline yang sedang berjalan, bukan ditebak dari
+    // angka pct mentah (yang akan reset ke kecil lagi begitu fase LLM mulai).
+    let rwPipelineStage = "stt";
+
+    function rwSetRing(pct) {
+      pct = Math.max(0, Math.min(100, pct || 0));
+      const overall = rwPipelineStage === "llm" ? 70 + Math.round(pct * 0.3) : Math.round(pct * 0.7);
+      const ringFg = document.getElementById("rw-ring-fg");
+      if (!ringFg) return;
+      ringFg.style.strokeDashoffset = RING_C * (1 - overall / 100);
+      document.getElementById("rw-ring-percent").textContent = overall + "%";
+      rwUpdateProgressPhase(rwPipelineStage);
+    }
+    function rwUpdateProgressPhase(phase) {
+      if (phase === rwProgressPhase) return;
+      rwProgressPhase = phase;
+      const icon = document.getElementById("rw-progress-phase-icon");
+      const ringFg = document.getElementById("rw-ring-fg");
+      const label = document.getElementById("rw-phase-label");
+      if (!icon || !ringFg || !label) return;
+      if (phase === "stt") {
+        icon.setAttribute("data-lucide", "audio-lines");
+        icon.className = "anim-stt mt-1";
+        icon.style.color = "#3B82F6";
+        ringFg.setAttribute("stroke", "#3B82F6");
+        label.textContent = "Transkripsi (Speech-to-Text)";
+        label.style.color = "#3B82F6";
+      } else {
+        icon.setAttribute("data-lucide", "brain");
+        icon.className = "anim-llm mt-1";
+        icon.style.color = "#8B5CF6";
+        ringFg.setAttribute("stroke", "#8B5CF6");
+        label.textContent = "Peringkasan (AI/LLM)";
+        label.style.color = "#8B5CF6";
+      }
+      lucide.createIcons();
+      if (rwFunTimer) rwStartFunMessages();
+    }
+    function rwStartFunMessages() {
+      rwStopFunMessages();
+      const messages = rwProgressPhase === "llm" ? FUN_MESSAGES_LLM : FUN_MESSAGES_STT;
+      const el = document.getElementById("rw-fun-message");
+      if (!el) return;
+      rwFunIdx = 0;
+      el.textContent = messages[0];
+      rwFunTimer = setInterval(() => {
+        el.classList.add("fade");
+        setTimeout(() => {
+          const current = rwProgressPhase === "llm" ? FUN_MESSAGES_LLM : FUN_MESSAGES_STT;
+          rwFunIdx = (rwFunIdx + 1) % current.length;
+          el.textContent = current[rwFunIdx];
+          el.classList.remove("fade");
+        }, 450);
+      }, 2600);
+    }
+    function rwStopFunMessages() { if (rwFunTimer) { clearInterval(rwFunTimer); rwFunTimer = null; } }
+    function rwStartProgressPoll() {
+      clearInterval(rwProgressPoll);
+      rwProgressPoll = setInterval(async () => {
+        try {
+          const p = await api(`/api/meetings/${currentRapatId}/progress`);
+          rwSetRing(p.progress);
+          rwPipelineStatus(p.progress_stage || "");
+        } catch (err) { /* abaikan - polling lanjut di tick berikutnya */ }
+      }, 1200);
+    }
+    function rwStopProgressPoll() { clearInterval(rwProgressPoll); rwProgressPoll = null; }
 
     async function runWizardNotulaPipeline() {
       const body = document.getElementById("rw-notula-body");
       body.innerHTML = `
-        <div class="text-center py-10">
-          <i data-lucide="loader-2" class="animate-spin mx-auto" style="width:32px;height:32px;color:#6b7280"></i>
-          <p id="rw-pipeline-status" class="text-sm text-gray-600 mt-4">Memproses transkripsi audio...</p>
+        <div class="text-center py-6">
+          <div class="relative w-40 h-40 mx-auto mb-4">
+            <svg width="160" height="160" viewBox="0 0 176 176">
+              <circle class="ring-track" cx="88" cy="88" r="74" stroke="#E5E7EB" stroke-width="14" fill="none"/>
+              <circle id="rw-ring-fg" cx="88" cy="88" r="74" stroke="#3B82F6" stroke-width="14" fill="none"
+                      stroke-linecap="round" stroke-dasharray="464.96" stroke-dashoffset="464.96"
+                      transform="rotate(-90 88 88)"/>
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center">
+              <span id="rw-ring-percent" class="text-3xl font-bold text-gray-800">0%</span>
+              <i id="rw-progress-phase-icon" data-lucide="loader" style="width:18px;height:18px;color:#3B82F6" class="anim-stt mt-1"></i>
+            </div>
+          </div>
+          <p id="rw-phase-label" class="text-[11px] font-semibold tracking-wide uppercase text-gray-400 mb-1">&nbsp;</p>
+          <p id="rw-fun-message" class="fun-msg text-sm font-medium text-blue-600">Menyiapkan segalanya...</p>
+          <p id="rw-stage-text" class="text-xs text-gray-500 mt-1">Memulai transkripsi audio...</p>
         </div>`;
       lucide.createIcons();
+      rwProgressPhase = null;
+      rwPipelineStage = "stt";
+      rwSetRing(0);
+      rwStartFunMessages();
+      rwStartProgressPoll();
       try {
         await api(`/api/rapat/${currentRapatId}/transkripsi/proses`, { method: "POST" });
       } catch (err) {
+        rwStopFunMessages(); rwStopProgressPoll();
         body.innerHTML = `<p class="text-sm text-red-500">Gagal memulai transkripsi: ${escapeHtml(err.message)}</p>`;
         return;
       }
@@ -2407,11 +2640,14 @@
         if (transkrip.status !== "berjalan") break;
       }
       if (transkrip.status !== "siap") {
+        rwStopFunMessages(); rwStopProgressPoll();
         body.innerHTML = `<p class="text-sm text-red-500 mb-4">Transkripsi gagal: ${escapeHtml(transkrip.pesan_error || "tidak diketahui")}. Anda tetap bisa menulis notula secara manual di bawah ini.</p>`;
         const notula = await api(`/api/rapat/${currentRapatId}/notula`);
         renderRwNotulaForm(notula);
         return;
       }
+      rwPipelineStage = "llm";
+      rwSetRing(0);
       rwPipelineStatus("Menyusun draft notula dengan AI...");
       try {
         await api(`/api/rapat/${currentRapatId}/notula/generate`, { method: "POST" });
@@ -2426,6 +2662,8 @@
         // Generate AI gagal (mis. LLM error) - tetap lanjut ke form notula kosong,
         // pengguna tetap bisa mengisi manual.
       }
+      rwStopFunMessages();
+      rwStopProgressPoll();
       const notula = await api(`/api/rapat/${currentRapatId}/notula`);
       renderRwNotulaForm(notula);
     }
@@ -2436,7 +2674,7 @@
         <div class="space-y-6">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Pendahuluan</label>
-            <textarea id="rw-notula-pendahuluan" rows="3" class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white"></textarea>
+            <textarea id="rw-notula-pendahuluan" rows="3" class="notula-field-font w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white"></textarea>
           </div>
           <div>
             <div class="flex items-center justify-between mb-1">
@@ -2450,7 +2688,18 @@
               <label class="block text-sm font-medium text-gray-700">Pertanyaan dan Jawaban</label>
               <button type="button" onclick="rwAddQa('rw-tanya-jawab')" class="text-xs text-blue-600 hover:underline">+ Tambah tanya jawab</button>
             </div>
-            <div id="rw-tanya-jawab"></div>
+            <div class="border border-gray-200 rounded-xl overflow-hidden">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                  <tr class="text-left text-gray-500 text-xs">
+                    <th class="p-2 font-medium">Pertanyaan</th>
+                    <th class="p-2 font-medium">Jawaban</th>
+                    <th class="p-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody id="rw-tanya-jawab"></tbody>
+              </table>
+            </div>
           </div>
           <div class="flex justify-end gap-2 pt-2">
             <button type="button" onclick="rwSimpanNotula()" class="px-5 py-2.5 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Simpan</button>
@@ -2687,8 +2936,6 @@
                      ${u.id === currentUser.id ? "disabled title=\"Tidak dapat memilih akun sendiri\"" : ""}>
             </td>
             <td class="p-4">${escapeHtml(u.nama)}</td>
-            <td class="p-4">${escapeHtml(u.username)}</td>
-            <td class="p-4 text-gray-500">${escapeHtml(u.jabatan || "-")}</td>
             <td class="p-4">
               <select onchange="ubahRolePengguna(${u.id}, this.value)"
                       class="text-sm border border-gray-200 rounded-lg px-2 py-1 bg-white"
@@ -2697,7 +2944,6 @@
                 <option value="admin" ${u.role === "admin" ? "selected" : ""}>Administrator</option>
               </select>
             </td>
-            <td class="p-4"><span class="px-3 py-1 text-xs rounded-full font-medium ${u.is_active ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"}">${u.is_active ? "Aktif" : "Nonaktif"}</span></td>
             <td class="p-4 flex items-center gap-1">
               <button onclick="toggleAktifPengguna(${u.id}, ${!u.is_active})" title="${u.is_active ? "Nonaktifkan" : "Aktifkan"}"
                       class="icon-btn ${u.is_active ? "text-amber-500" : "text-blue-600"}"
@@ -2806,6 +3052,7 @@
     let currentRapatId = null;
     let currentRapat = null;
     let currentRapatTab = "informasi";
+    let currentNotula = null;
 
     // Status rapat/notula ditampilkan ke pengguna sebagai 3 nilai saja -
     // Draft/Proses/Selesai - meski di balik layar lifecycle_status masih
@@ -2832,8 +3079,8 @@
 
     // ---------- Daftar Rapat ----------
     async function loadRapatList() {
-      document.getElementById("rapat-buat-btn").classList.toggle("hidden", !canWrite());
-      document.getElementById("rapat-buat-notula-btn").classList.toggle("hidden", !canWrite());
+      document.getElementById("rapat-buat-btn").classList.toggle("hidden", !canCreateRapat());
+      document.getElementById("rapat-buat-notula-btn").classList.toggle("hidden", !canCreateRapat());
       document.getElementById("rapat-select-all").classList.toggle("hidden", !canWrite());
       const q = document.getElementById("rapat-search").value.trim();
       const status = document.getElementById("rapat-filter-status").value;
@@ -2906,9 +3153,10 @@
       informasi: "Informasi", peserta: "Peserta", dokumen: "Dokumen",
       rekaman: "Rekaman", notula: "Notula",
     };
-    // Tab yang boleh dilihat pegawai yang BUKAN notulis rapat ini (lihat item
-    // 37) - hanya arsip notula + dokumentasi, bukan fitur Rapat penuh.
-    const RAPAT_TAB_PESERTA_SAJA = ["dokumen", "notula"];
+    // Tab yang boleh dilihat pegawai yang BUKAN notulis rapat ini - hanya
+    // Notula (langsung tampil, tanpa tab Dokumen/Rekaman/dst yang bukan
+    // haknya), bukan fitur Rapat penuh.
+    const RAPAT_TAB_PESERTA_SAJA = ["notula"];
     // Urutan & langkah wizard Detail Rapat (item 43 - "Aksi" tampil sebagai
     // wizard langkah demi langkah, bukan tab datar). `badge` merujuk id span
     // yang diisi renderRapatHeader() dengan jumlah/status per langkah.
@@ -2931,6 +3179,11 @@
       const wrap = document.getElementById("rd-tabs");
       if (!wrap) return;
       const steps = rdVisibleSteps();
+      // Pegawai peserta (bukan notulis) cuma punya 1 langkah (Notula) - ikon
+      // wizard/nomor langkah jadi tidak relevan untuk tampilan sesederhana
+      // itu, langsung sembunyikan (lihat juga renderRdWizardNav()).
+      if (steps.length <= 1) { wrap.innerHTML = ""; wrap.classList.add("hidden"); return; }
+      wrap.classList.remove("hidden");
       wrap.innerHTML = steps.map((s, i) => `
         <div class="flex flex-col items-center" data-rstepwrap="${s.id}">
           <button type="button" class="rd-pill" data-rpill="${s.id}" onclick="switchRapatTab('${s.id}')">${i + 1}</button>
@@ -3149,7 +3402,11 @@
 
       let aksi = "";
       if (r.jumlah_rekaman > 0) {
-        aksi += `<button onclick="tutupRingkasanModal(); switchRapatTab('transkripsi')" class="btn-primary px-4 py-2.5 rounded-xl text-sm font-medium">Proses Transkripsi</button>`;
+        // Diarahkan ke tab Rekaman (yang sudah menggabungkan Transkripsi di
+        // dalamnya, lihat renderTranskripsiSection) - BUKAN memicu proses
+        // transkripsi langsung dari sini, supaya tombol "Proses Transkripsi"
+        // hanya ada di satu tempat (tab Rekaman) dan tidak tampil dobel.
+        aksi += `<button onclick="tutupRingkasanModal(); switchRapatTab('rekaman')" class="btn-primary px-4 py-2.5 rounded-xl text-sm font-medium">Buka Rekaman &amp; Transkripsi</button>`;
       }
       aksi += `<button onclick="tutupRingkasanModal(); switchRapatTab('notula')" class="px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Buka Notula</button>`;
       aksi += `<button onclick="tutupRingkasanModal()" class="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:underline">Nanti Saja</button>`;
@@ -3211,26 +3468,13 @@
             <label class="block text-sm font-medium text-gray-700 mb-1">Agenda</label>
             <textarea id="ri-agenda" rows="2" ${dis} class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white">${escapeHtml(r.agenda || "")}</textarea>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Keterangan</label>
-            <textarea id="ri-keterangan" rows="2" ${dis} class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white">${escapeHtml(r.catatan_notulis || "")}</textarea>
-          </div>
           <p id="ri-saved" class="text-xs text-green-600 hidden">Tersimpan ✓</p>
-        </div>
-
-        <div class="card p-6 max-w-3xl mt-5">
-          <h3 class="text-sm font-semibold text-gray-800 mb-3">Informasi Sistem</h3>
-          <dl class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <div class="flex justify-between"><dt class="text-gray-500">Dibuat pada</dt><dd>${formatTanggalWaktu(r.dibuat_pada)}</dd></div>
-            <div class="flex justify-between"><dt class="text-gray-500">Waktu mulai aktual</dt><dd>${r.waktu_mulai_aktual ? formatTanggalWaktu(r.waktu_mulai_aktual) : "-"}</dd></div>
-            <div class="flex justify-between"><dt class="text-gray-500">Waktu selesai aktual</dt><dd>${r.waktu_selesai_aktual ? formatTanggalWaktu(r.waktu_selesai_aktual) : "-"}</dd></div>
-          </dl>
         </div>`;
       lucide.createIcons();
       if (r.pimpinan) document.getElementById("ri-pimpinan").value = r.pimpinan.id;
       if (writable) {
         ["ri-judul", "ri-tanggal", "ri-lokasi", "ri-waktu-mulai", "ri-waktu-selesai",
-         "ri-jenis-media", "ri-pimpinan", "ri-agenda", "ri-keterangan"]
+         "ri-jenis-media", "ri-pimpinan", "ri-agenda"]
           .forEach(id => document.getElementById(id).addEventListener("change", simpanInformasiRapat));
       }
     }
@@ -3245,7 +3489,6 @@
         jenis_media: document.getElementById("ri-jenis-media").value || null,
         pimpinan_id: document.getElementById("ri-pimpinan").value ? parseInt(document.getElementById("ri-pimpinan").value) : null,
         agenda: document.getElementById("ri-agenda").value || null,
-        catatan_notulis: document.getElementById("ri-keterangan").value || null,
       };
       try {
         currentRapat = await api(`/api/rapat/${currentRapatId}`, { method: "PATCH",
@@ -3267,7 +3510,7 @@
     const SUMBER_PESERTA_LABEL = { diundang: "Diundang", tambahan: "Tambahan", walk_in: "Walk-in" };
     const KEHADIRAN_LABEL = { hadir: "Hadir", tidak_hadir: "Tidak Hadir" };
     const KEHADIRAN_BADGE = {
-      hadir: "bg-green-100 text-green-700", tidak_hadir: "bg-gray-100 text-gray-500",
+      hadir: "bg-green-100 text-green-700", tidak_hadir: "bg-red-100 text-red-700",
     };
 
     // Checklist chip kehadiran (2 status, single-select) - menggantikan dropdown.
@@ -3275,16 +3518,14 @@
     // sebagai badge warna tunggal seperti sebelumnya.
     function renderKehadiranChips(p, editable) {
       const status = p.kehadiran ? p.kehadiran.status_kehadiran : "tidak_hadir";
-      const dikoreksi = p.kehadiran && p.kehadiran.diedit_pasca_rapat
-        ? `<span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600" title="Dikoreksi setelah rapat">Dikoreksi</span>` : "";
       if (!editable) {
-        return `<span class="px-2.5 py-1 text-xs rounded-full font-medium ${KEHADIRAN_BADGE[status]}">${KEHADIRAN_LABEL[status]}</span>${dikoreksi}`;
+        return `<span class="px-2.5 py-1 text-xs rounded-full font-medium ${KEHADIRAN_BADGE[status]}">${KEHADIRAN_LABEL[status]}</span>`;
       }
       return `<div class="flex flex-wrap gap-1">` +
         Object.entries(KEHADIRAN_LABEL).map(([v, l]) => `
           <button type="button" onclick="setKehadiran(${p.id}, '${v}')"
                   class="kehadiran-chip ${v === status ? "selected " + KEHADIRAN_BADGE[v] : ""}">${l}</button>`).join("") +
-        `</div>${dikoreksi}`;
+        `</div>`;
     }
 
     async function renderPesertaTab() {
@@ -3307,11 +3548,8 @@
           <p class="text-sm text-gray-500"><span class="font-semibold text-gray-700">${list.length}</span> peserta terdaftar · <span class="font-semibold text-gray-700">${hadir}</span> hadir</p>
           ${writable ? `
           <div class="flex gap-2">
-            <button onclick="document.getElementById('peserta-tambah-wrap').classList.toggle('hidden')" class="px-4 py-2 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-2">
+            <button onclick="document.getElementById('peserta-tambah-wrap').classList.toggle('hidden')" class="btn-primary px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2">
               <i data-lucide="user-plus" style="width:15px;height:15px"></i> Tambah Peserta
-            </button>
-            <button onclick="tambahWalkinPrompt()" class="btn-primary px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2">
-              <i data-lucide="door-open" style="width:15px;height:15px"></i> Peserta Datang Langsung
             </button>
           </div>` : ""}
         </div>
@@ -3379,8 +3617,8 @@
             <thead class="bg-gray-50">
               <tr class="text-left text-gray-500">
                 ${writable ? `<th class="p-4 w-10"><input type="checkbox" onchange="toggleSelectAllPesertaKehadiran('peserta-internal-table', this.checked)"></th>` : ""}
-                <th class="p-4">Nama</th><th class="p-4">Jabatan</th><th class="p-4">Peran</th>
-                <th class="p-4">Kehadiran</th><th class="p-4">Aksi</th>
+                <th class="p-4">Nama</th>
+                <th class="p-4">Kehadiran</th>${writable ? `<th class="p-4">Aksi</th>` : ""}
               </tr>
             </thead>
             <tbody id="peserta-internal-table"></tbody>
@@ -3395,8 +3633,8 @@
             <thead class="bg-gray-50">
               <tr class="text-left text-gray-500">
                 ${writable ? `<th class="p-4 w-10"><input type="checkbox" onchange="toggleSelectAllPesertaKehadiran('peserta-eksternal-table', this.checked)"></th>` : ""}
-                <th class="p-4">Nama</th><th class="p-4">Jabatan/Instansi</th><th class="p-4">Peran</th>
-                <th class="p-4">Sumber</th><th class="p-4">Kehadiran</th><th class="p-4">Aksi</th>
+                <th class="p-4">Nama</th>
+                <th class="p-4">Sumber</th><th class="p-4">Kehadiran</th>${writable ? `<th class="p-4">Aksi</th>` : ""}
               </tr>
             </thead>
             <tbody id="peserta-eksternal-table"></tbody>
@@ -3427,21 +3665,26 @@
       if (emptyEl) emptyEl.classList.add("hidden");
       tbody.innerHTML = list.map(p => {
         const nama = p.pegawai ? p.pegawai.nama : (p.nama_manual || "-");
-        const jabatan = p.pegawai ? p.pegawai.jabatan : [p.jabatan_manual, p.instansi_manual].filter(Boolean).join(" · ");
         return `
           <tr class="border-t border-gray-100" data-peserta-nama="${escapeHtml(nama.toLowerCase())}">
             ${!locked ? `<td class="p-4"><input type="checkbox" class="peserta-kehadiran-check" data-peserta-id="${p.id}" onchange="updatePesertaKehadiranBulkBar()"></td>` : ""}
             <td class="p-4 font-medium text-gray-700">${escapeHtml(nama)}</td>
-            <td class="p-4 text-gray-500">${escapeHtml(jabatan || "-")}</td>
-            <td class="p-4 text-xs text-gray-500 capitalize">${p.peran}</td>
             ${showSumber ? `<td class="p-4 text-xs text-gray-400">${SUMBER_PESERTA_LABEL[p.sumber] || p.sumber}</td>` : ""}
             <td class="p-4">${renderKehadiranChips(p, !locked)}</td>
-            <td class="p-4">
-              ${locked ? "" : `<button onclick="hapusPesertaTab(${p.id}, '${escapeHtml(nama).replace(/'/g, "\\'")}')" class="icon-btn text-gray-400 hover:!text-red-600" title="Hapus"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>`}
-            </td>
+            ${!locked ? `<td class="p-4"><button onclick="hapusPesertaTab(${p.id}, '${escapeHtml(nama).replace(/'/g, "\\'")}')" class="icon-btn text-gray-400 hover:!text-red-600" title="Hapus"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button></td>` : ""}
           </tr>`;
       }).join("");
       lucide.createIcons();
+    }
+
+    async function hapusPesertaTab(pesertaId, nama) {
+      if (!await showConfirm(`Hapus peserta "${nama}" dari rapat ini?`)) return;
+      try {
+        await api(`/api/rapat/${currentRapatId}/peserta/${pesertaId}`, { method: "DELETE" });
+        showToast(`Peserta "${nama}" dihapus.`, "success");
+        await renderPesertaTab();
+        await refreshRapatHeaderCounts();
+      } catch (err) { showToast("Gagal menghapus peserta: " + err.message); }
     }
 
     function filterPesertaTabList(q) {
@@ -3520,18 +3763,6 @@
       }
     }
 
-    async function tambahWalkinPrompt() {
-      const nama = await showPrompt("Nama peserta yang datang langsung:");
-      if (nama === null) return;
-      try {
-        await api(`/api/rapat/${currentRapatId}/peserta/walkin`, { method: "POST",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nama_manual: nama }) });
-        showToast(`"${nama}" tercatat hadir.`, "success");
-        await renderPesertaTab();
-        await refreshRapatHeaderCounts();
-      } catch (err) { showToast("Gagal mencatat peserta: " + err.message); }
-    }
-
     async function setKehadiran(pesertaId, statusKehadiran) {
       try {
         await api(`/api/rapat/${currentRapatId}/peserta/${pesertaId}/kehadiran`, { method: "PATCH",
@@ -3539,16 +3770,6 @@
         await renderPesertaTab();
         await refreshRapatHeaderCounts();
       } catch (err) { showToast("Gagal mencatat kehadiran: " + err.message); }
-    }
-
-    async function hapusPesertaTab(id, nama) {
-      if (!await showConfirm(`Hapus peserta "${nama}" dari rapat ini?`)) return;
-      try {
-        await api(`/api/rapat/${currentRapatId}/peserta/${id}`, { method: "DELETE" });
-        showToast(`Peserta "${nama}" dihapus.`, "success");
-        await renderPesertaTab();
-        await refreshRapatHeaderCounts();
-      } catch (err) { showToast("Gagal menghapus peserta: " + err.message); }
     }
 
     function formatUkuranFile(bytes) {
@@ -3600,25 +3821,31 @@
         <div class="card p-10 text-center">
           <i data-lucide="file-x" style="width:40px;height:40px;color:#d1d5db;margin:0 auto"></i>
           <p class="mt-3 text-sm text-gray-500">Belum ada dokumen pendukung.</p>
-        </div>` : `
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          ${list.map(d => `
-            <div class="card p-4 flex items-start gap-3">
-              <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                <i data-lucide="${JENIS_DOKUMEN_ICON[d.jenis] || 'file'}" style="width:18px;height:18px;color:#6b7280"></i>
-              </div>
-              <div class="flex-1 min-w-0">
-                <a href="${d.url}" target="_blank" class="text-sm font-medium text-gray-700 hover:text-blue-600 hover:underline break-all">${escapeHtml(d.nama_file)}</a>
-                <div class="flex flex-wrap items-center gap-1.5 mt-1">
-                  <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">${JENIS_DOKUMEN_LABEL[d.jenis] || d.jenis}</span>
-                  ${d.versi > 1 ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">v${d.versi}</span>` : ""}
-                  ${d.diunggah_pasca_rapat ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600">Pasca-rapat</span>` : ""}
-                </div>
-                <p class="text-[11px] text-gray-400 mt-1">${formatUkuranFile(d.ukuran_bytes)} · ${formatTanggalWaktuSingkat(d.diunggah_pada)}</p>
-              </div>
-              ${locked ? "" : `<button onclick="hapusDokumenTab(${d.id}, '${escapeHtml(d.nama_file).replace(/'/g, "\\'")}')" class="icon-btn text-gray-400 hover:!text-red-600 flex-shrink-0" title="Hapus"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>`}
-            </div>`).join("")}
-        </div>`}`;
+        </div>` : Object.keys(JENIS_DOKUMEN_LABEL).map(jenis => {
+          const files = list.filter(d => d.jenis === jenis);
+          if (!files.length) return "";
+          return `
+          <div class="mb-5">
+            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">${JENIS_DOKUMEN_LABEL[jenis]}</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              ${files.map(d => `
+                <div class="card p-4 flex items-start gap-3">
+                  <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                    <i data-lucide="${JENIS_DOKUMEN_ICON[d.jenis] || 'file'}" style="width:18px;height:18px;color:#6b7280"></i>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <a href="${d.url}" target="_blank" class="text-sm font-medium text-gray-700 hover:text-blue-600 hover:underline break-all">${escapeHtml(d.nama_file)}</a>
+                    <div class="flex flex-wrap items-center gap-1.5 mt-1">
+                      ${d.versi > 1 ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">v${d.versi}</span>` : ""}
+                      ${d.diunggah_pasca_rapat ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600">Pasca-rapat</span>` : ""}
+                    </div>
+                    <p class="text-[11px] text-gray-400 mt-1">${formatUkuranFile(d.ukuran_bytes)} · ${formatTanggalWaktuSingkat(d.diunggah_pada)}</p>
+                  </div>
+                  ${locked ? "" : `<button onclick="hapusDokumenTab(${d.id}, '${escapeHtml(d.nama_file).replace(/'/g, "\\'")}')" class="icon-btn text-gray-400 hover:!text-red-600 flex-shrink-0" title="Hapus"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>`}
+                </div>`).join("")}
+            </div>
+          </div>`;
+        }).join("")}`;
       lucide.createIcons();
     }
 
@@ -3651,6 +3878,165 @@
       } catch (err) { showToast("Gagal menghapus dokumen: " + err.message); }
     }
 
+    // ============================================================
+    // KELENGKAPAN RAPAT (matriks Rapat x kategori dokumen - Undangan/
+    // Notula/Materi/Dokumentasi/Daftar Hadir). Notula dibuat & diunduh dari
+    // menu Rapat, ditandatangani/dicap di luar aplikasi, baru diunggah
+    // kembali di sini sebagai bukti kelengkapan - reuse upload_dokumen()/
+    // JenisDokumenEnum yang sama dengan tab Dokumen di Detail Rapat.
+    // ============================================================
+    const KELENGKAPAN_KATEGORI = ["undangan", "notula", "materi", "dokumentasi", "daftar_hadir"];
+    const KELENGKAPAN_LABEL = { undangan: "Undangan", notula: "Notula", materi: "Materi", dokumentasi: "Dokumentasi", daftar_hadir: "Daftar Hadir" };
+    let kelengkapanData = [];   // [{ rapat, dokumen: [...] }, ...]
+
+    async function loadKelengkapanRapat() {
+      const tbody = document.getElementById("kelengkapan-list");
+      const loadingEl = document.getElementById("kelengkapan-loading");
+      const emptyEl = document.getElementById("kelengkapan-empty");
+      tbody.innerHTML = "";
+      emptyEl.classList.add("hidden");
+      loadingEl.textContent = "Memuat data rapat...";
+      loadingEl.classList.remove("hidden");
+      try {
+        const rapatList = await api("/api/rapat");
+        // N+1 (satu panggilan /dokumen per rapat) - jumlah rapat khas
+        // instansi ini kecil, jadi lebih sederhana daripada menambah
+        // endpoint agregat baru di backend hanya untuk matriks ini.
+        kelengkapanData = await Promise.all(rapatList.map(async (r) => {
+          let dokumen = [];
+          try { dokumen = await api(`/api/rapat/${r.id}/dokumen`); } catch (err) { /* biarkan kosong */ }
+          return { rapat: r, dokumen };
+        }));
+        loadingEl.classList.add("hidden");
+        renderKelengkapanTable();
+      } catch (err) {
+        loadingEl.textContent = "Gagal memuat data rapat: " + err.message;
+      }
+    }
+
+    function renderKelengkapanTable() {
+      const tbody = document.getElementById("kelengkapan-list");
+      const emptyEl = document.getElementById("kelengkapan-empty");
+      const q = (document.getElementById("kelengkapan-search").value || "").trim().toLowerCase();
+      const rows = kelengkapanData.filter(({ rapat }) => !q || rapat.judul_rapat.toLowerCase().includes(q));
+      if (rows.length === 0) {
+        tbody.innerHTML = "";
+        emptyEl.textContent = q ? "Tidak ada rapat yang cocok dengan pencarian ini." : "Belum ada rapat.";
+        emptyEl.classList.remove("hidden");
+        return;
+      }
+      emptyEl.classList.add("hidden");
+      tbody.innerHTML = rows.map(({ rapat, dokumen }) => {
+        const jumlahLengkap = KELENGKAPAN_KATEGORI.filter(k => dokumen.some(d => d.jenis === k)).length;
+        const lengkap = jumlahLengkap === KELENGKAPAN_KATEGORI.length;
+        const bolehKelola = canWriteMeeting(rapat);
+        return `
+        <tr class="border-t border-gray-100">
+          <td class="p-4"><button type="button" onclick="bukaInfoRapatModal(${rapat.id})" class="text-left font-medium text-gray-800 hover:text-blue-700">${escapeHtml(rapat.judul_rapat)}</button></td>
+          <td class="p-4 text-gray-500 whitespace-nowrap">${tglSingkat(rapat.tanggal)}</td>
+          <td class="p-4"><span class="px-2.5 py-1 text-xs rounded-full font-medium ${lengkap ? "bg-green-100 text-green-700" : "bg-amber-50 text-amber-600"}">${lengkap ? "Lengkap" : `Belum Lengkap (${jumlahLengkap}/${KELENGKAPAN_KATEGORI.length})`}</span></td>
+          <td class="p-4"><button type="button" onclick="bukaKelengkapanModal(${rapat.id})" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">${bolehKelola ? "Aksi" : "Lihat"}</button></td>
+        </tr>`;
+      }).join("");
+      lucide.createIcons();
+    }
+
+    // ---------- Popup info rapat ringkas (bukan hyperlink ke "Rapat" -
+    // integrasi tetap ada lewat tombol "Buka Rapat" di dalam popup) ----------
+    function tutupInfoRapatModal() {
+      document.getElementById("rapat-info-modal").classList.add("hidden");
+    }
+    function bukaInfoRapatModal(rapatId) {
+      const entry = kelengkapanData.find(({ rapat }) => rapat.id === rapatId);
+      if (!entry) return;
+      const { rapat } = entry;
+      const baris = (label, value) => value ? `
+        <div class="flex justify-between gap-4">
+          <span class="text-gray-400 flex-shrink-0">${label}</span>
+          <span class="text-gray-700 text-right">${escapeHtml(value)}</span>
+        </div>` : "";
+      document.getElementById("rapat-info-modal-body").innerHTML = `
+        <p class="font-semibold text-gray-800 text-base mb-1">${escapeHtml(rapat.judul_rapat)}</p>
+        <span class="inline-block px-2.5 py-1 text-xs rounded-full font-medium ${rapatStatusBadge(rapat.lifecycle_status)} mb-3">${rapatStatusLabel(rapat.lifecycle_status)}</span>
+        <div class="space-y-2 pt-2 border-t border-gray-100">
+          ${baris("Tanggal", tglLengkap(rapat.tanggal))}
+          ${baris("Waktu", [rapat.waktu_mulai, rapat.waktu_selesai].filter(Boolean).join(" - "))}
+          ${baris("Tempat", rapat.lokasi)}
+          ${baris("Unit Kerja", rapat.unit_kerja)}
+          ${baris("Pimpinan", rapat.pimpinan && rapat.pimpinan.nama)}
+          ${baris("Notulis", rapat.notulis && rapat.notulis.nama)}
+        </div>`;
+      document.getElementById("rapat-info-modal-buka-btn").onclick = () => {
+        tutupInfoRapatModal();
+        openRapatDetail(rapatId);
+      };
+      document.getElementById("rapat-info-modal").classList.remove("hidden");
+      lucide.createIcons();
+    }
+
+    // ---------- Modal unggah kelengkapan (5 kategori sekaligus per rapat) -
+    // Aksi penuh (unggah/ganti) untuk admin & notulis rapat ini
+    // (canWriteMeeting); pegawai lain lihat-saja (tautan unduh tanpa kontrol
+    // unggah), lihat renderKelengkapanTable(). ----------
+    let kelengkapanModalRapatId = null;
+
+    function bukaKelengkapanModal(rapatId) {
+      kelengkapanModalRapatId = rapatId;
+      const entry = kelengkapanData.find(({ rapat }) => rapat.id === rapatId);
+      document.getElementById("kelengkapan-modal-judul").textContent = entry ? entry.rapat.judul_rapat : "";
+      renderKelengkapanModalBody();
+      document.getElementById("kelengkapan-modal").classList.remove("hidden");
+    }
+    function tutupKelengkapanModal() {
+      document.getElementById("kelengkapan-modal").classList.add("hidden");
+      kelengkapanModalRapatId = null;
+    }
+    function renderKelengkapanModalBody() {
+      const entry = kelengkapanData.find(({ rapat }) => rapat.id === kelengkapanModalRapatId);
+      const body = document.getElementById("kelengkapan-modal-body");
+      if (!entry) { body.innerHTML = ""; return; }
+      const bolehKelola = canWriteMeeting(entry.rapat);
+      body.innerHTML = KELENGKAPAN_KATEGORI.map(k => {
+        const files = entry.dokumen.filter(d => d.jenis === k);
+        const inputId = `kelengkapan-modal-input-${k}`;
+        return `
+          <div class="flex items-center justify-between gap-3 p-3 border border-gray-200 rounded-xl">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-gray-700">${KELENGKAPAN_LABEL[k]}</p>
+              ${files.length
+                ? `<div class="mt-1 space-y-0.5">${files.map(f => `<a href="${f.url}" target="_blank" class="block text-xs text-blue-600 hover:underline truncate">${escapeHtml(f.nama_file)}</a>`).join("")}</div>`
+                : `<p class="text-xs text-gray-400 mt-0.5">Belum diunggah</p>`}
+            </div>
+            ${bolehKelola ? `
+            <div class="flex-shrink-0">
+              <input id="${inputId}" type="file" class="hidden" onchange="uploadKelengkapan(${kelengkapanModalRapatId}, '${k}', this)">
+              <button type="button" onclick="document.getElementById('${inputId}').click()"
+                      class="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-1.5">
+                <i data-lucide="upload" style="width:13px;height:13px"></i> ${files.length ? "Ganti" : "Unggah"}
+              </button>
+            </div>` : ""}
+          </div>`;
+      }).join("");
+      lucide.createIcons();
+    }
+
+    async function uploadKelengkapan(rapatId, kategori, input) {
+      if (!input.files.length) return;
+      const fd = new FormData();
+      fd.append("jenis", kategori);
+      fd.append("files", input.files[0]);
+      try {
+        await api(`/api/rapat/${rapatId}/dokumen`, { method: "POST", body: fd });
+        showToast(`${KELENGKAPAN_LABEL[kategori]} berhasil diunggah.`, "success");
+        const entry = kelengkapanData.find(({ rapat }) => rapat.id === rapatId);
+        if (entry) entry.dokumen = await api(`/api/rapat/${rapatId}/dokumen`);
+        renderKelengkapanTable();
+        if (kelengkapanModalRapatId === rapatId) renderKelengkapanModalBody();
+      } catch (err) {
+        showToast(`Gagal mengunggah ${KELENGKAPAN_LABEL[kategori]}: ` + err.message);
+      }
+    }
+
     function formatTimer(totalSeconds) {
       const m = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
       const s = String(totalSeconds % 60).padStart(2, "0");
@@ -3661,7 +4047,12 @@
     // Variabel rekaman langsung TERPISAH dari mediaRecorderObj wizard lama
     // (mulaiRekam/berhentiRekam) supaya kedua alur tidak saling ganggu state.
     let rdMediaRecorder = null, rdMediaStream = null, rdChunks = [], rdTimerInterval = null,
-        rdSeconds = 0, rdCurrentSegmentId = null;
+        rdSeconds = 0, rdCurrentSegmentId = null, rdLiveInterval = null, rdLiveBusy = false;
+    // Jeda antar cuplikan transkrip+diarization langsung (item #64) - dalam
+    // detik. Diproses ulang dari awal segmen tiap kali (bukan inkremental),
+    // jadi near-real-time (bukan real-time per-kata) - lihat
+    // live_snapshot_rekaman() di backend/app/routers/rapat.py.
+    const RD_LIVE_SNAPSHOT_SECONDS = 25;
     // id elemen box kontrol rekaman saat ini - "rekaman-live-box" (tab Rekaman
     // halaman detail) atau "rw-rekaman-box" (wizard Buat Rapat), lihat renderRekamanTab()
     // dan langkah 3 wizard - fungsi rd*/renderRekamanControls dipakai ulang oleh keduanya.
@@ -3694,6 +4085,13 @@
       rdBoxId = "rekaman-live-box";
       panel.innerHTML = `
         <div class="card p-6 mb-5 text-center" id="rekaman-live-box"></div>
+
+        <div class="card p-4 mb-5" id="rd-live-transkrip-wrap">
+          <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+            <i data-lucide="audio-lines" style="width:13px;height:13px"></i> Transkrip Langsung (per ~${RD_LIVE_SNAPSHOT_SECONDS} detik)
+          </h4>
+          <div id="rd-live-transkrip"><p class="text-xs text-gray-400 italic">Transkrip langsung akan tampil di sini setelah rekaman dimulai.</p></div>
+        </div>
 
         ${list.length === 0 ? `
         <div class="card p-8 text-center">
@@ -3792,7 +4190,9 @@
       rdChunks = [];
       rdMediaRecorder = new MediaRecorder(rdMediaStream);
       rdMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) rdChunks.push(e.data); };
-      rdMediaRecorder.start();
+      // Timeslice supaya ondataavailable juga menembak berkala (bukan cuma
+      // saat stop()) - dipakai rdLiveSnapshot() untuk cuplikan near-real-time.
+      rdMediaRecorder.start(RD_LIVE_SNAPSHOT_SECONDS * 1000);
       rdSeconds = 0;
       clearInterval(rdTimerInterval);
       rdTimerInterval = setInterval(() => {
@@ -3802,13 +4202,56 @@
       }, 1000);
       renderRekamanControls();
       mulaiLiveCaption();
+      clearInterval(rdLiveInterval);
+      rdLiveInterval = setInterval(rdLiveSnapshot, RD_LIVE_SNAPSHOT_SECONDS * 1000);
       await refreshRapatHeaderCounts();
+    }
+
+    // Transkrip+diarization "sekilas" (item #64) - reuse rdChunks yang sudah
+    // terkumpul sejak mulai rekam (bukan cuma sejak snapshot terakhir), sebab
+    // potongan WebM per-timeslice tidak selalu bisa didekode berdiri sendiri -
+    // menyatukan semua chunk sejak awal selalu menghasilkan berkas valid.
+    async function rdLiveSnapshot() {
+      if (rdLiveBusy || !rdMediaRecorder || rdMediaRecorder.state === "inactive" || !rdChunks.length) return;
+      const panel = document.getElementById("rd-live-transkrip");
+      rdLiveBusy = true;
+      try {
+        const blob = new Blob(rdChunks, { type: rdMediaRecorder.mimeType || "audio/webm" });
+        const ext = (blob.type.split("/")[1] || "webm").split(";")[0];
+        const fd = new FormData();
+        fd.append("file", blob, `cuplikan.${ext}`);
+        const hasil = await api(`/api/rapat/${currentRapatId}/rekaman/${rdCurrentSegmentId}/live-snapshot`,
+          { method: "POST", body: fd });
+        if (panel) renderRdLiveTranskrip(hasil);
+      } catch (err) {
+        // Cuplikan gagal - biarkan, coba lagi di interval berikutnya (bukan error fatal).
+      } finally {
+        rdLiveBusy = false;
+      }
+    }
+
+    function renderRdLiveTranskrip(hasil) {
+      const panel = document.getElementById("rd-live-transkrip");
+      if (!panel) return;
+      if (!hasil || (!hasil.teks && !hasil.speakers.length)) {
+        panel.innerHTML = `<p class="text-xs text-gray-400 italic">Menunggu cuplikan pertama...</p>`;
+        return;
+      }
+      if (hasil.speakers && hasil.speakers.length) {
+        const warna = ["text-blue-700", "text-purple-700", "text-emerald-700", "text-amber-700"];
+        panel.innerHTML = hasil.speakers.map((s, i) => `
+          <p class="text-xs mb-1.5"><span class="font-semibold ${warna[i % warna.length]}">${escapeHtml(s.speaker_label)}:</span>
+             <span class="text-gray-600">${escapeHtml(s.teks)}</span></p>`).join("");
+      } else {
+        panel.innerHTML = `<p class="text-xs text-gray-600">${escapeHtml(hasil.teks)}</p>`;
+      }
     }
 
     function jedaRekamLangsung() {
       if (!rdMediaRecorder || rdMediaRecorder.state !== "recording") return;
       rdMediaRecorder.pause();
       clearInterval(rdTimerInterval);
+      clearInterval(rdLiveInterval);
       api(`/api/rapat/${currentRapatId}/rekaman/${rdCurrentSegmentId}/pause`, { method: "POST" }).catch(() => {});
       renderRekamanControls();
     }
@@ -3822,6 +4265,8 @@
         const el = document.getElementById("rd-timer");
         if (el) el.textContent = formatTimer(rdSeconds);
       }, 1000);
+      clearInterval(rdLiveInterval);
+      rdLiveInterval = setInterval(rdLiveSnapshot, RD_LIVE_SNAPSHOT_SECONDS * 1000);
       api(`/api/rapat/${currentRapatId}/rekaman/${rdCurrentSegmentId}/resume`, { method: "POST" }).catch(() => {});
       renderRekamanControls();
     }
@@ -3829,6 +4274,7 @@
     async function berhentiRekamLangsung() {
       if (!rdMediaRecorder) return;
       clearInterval(rdTimerInterval);
+      clearInterval(rdLiveInterval);
       berhentiLiveCaption();
       const segmentId = rdCurrentSegmentId;
       const durasi = rdSeconds;
@@ -3903,7 +4349,7 @@
       }
 
       panel.innerHTML = `
-        <div class="card p-6 max-w-3xl">
+        <div class="card p-6 max-w-3xl mx-auto">
           <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
             <div class="flex items-center gap-2">
               <span class="px-2.5 py-1 text-xs rounded-full font-medium ${TRANSKRIP_STATUS_BADGE[transkrip.status] || 'bg-gray-100 text-gray-600'}">${SUB_STATUS_LABEL[transkrip.status] || transkrip.status}</span>
@@ -3916,7 +4362,18 @@
             ? `<p class="text-sm text-gray-500 flex items-center gap-2"><i data-lucide="loader-circle" class="animate-spin" style="width:14px;height:14px"></i> Sedang memproses transkrip di latar belakang...</p>`
             : `<textarea id="transkrip-teks-area" rows="14" ${locked ? "disabled" : ""} class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm leading-relaxed">${escapeHtml(transkrip.teks || "")}</textarea>
                ${locked ? "" : `<div class="flex items-center gap-3 mt-2"><button onclick="simpanEditTranskrip()" class="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Simpan Perubahan</button><span id="transkrip-saved" class="text-xs text-green-600 hidden">Tersimpan ✓</span></div>`}`}
-        </div>`;
+        </div>
+        ${transkrip.speakers && transkrip.speakers.length > 1 ? `
+        <div class="mt-4 max-w-3xl mx-auto">
+          <h3 class="font-bold text-sm mb-2 text-gray-600 text-center">Transkrip per Pembicara</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${transkrip.speakers.map(s => `
+              <div class="card p-4 text-center">
+                <p class="text-xs font-semibold text-blue-600 mb-2">${escapeHtml(s.speaker_label)}</p>
+                <p class="text-sm leading-relaxed text-gray-700">${escapeHtml(ringkasTeks(s.teks, 160))}</p>
+              </div>`).join("")}
+          </div>
+        </div>` : ""}`;
       lucide.createIcons();
       if (transkrip.status === "berjalan") pollTranskripsiStatus();
     }
@@ -4022,47 +4479,19 @@
         if (!notula) { lucide.createIcons(); return; }
       }
 
-      const canEdit = ["selesai", "review"].includes(s) && !locked && canWrite();
+      const canEdit = ["selesai", "review"].includes(s) && !locked && canWriteMeeting(currentRapat);
+      if (canEdit) renderNotulaEditForm(notula, s);
+      else await renderNotulaPreviewOnly(notula, s);
+    }
 
-      // Tabel peserta berpasangan 2 kolom - format sama seperti Pratinjau Notula.
-      let pesertaList = [];
-      try { pesertaList = await api(`/api/rapat/${currentRapatId}/peserta`); } catch (err) {}
-
-      // Dokumentasi foto ditampilkan di halaman terpisah (page-break) di bawah
-      // notula, seperti pada lampiran export Word - bukan bagian dari badan notula.
-      let dokumentasiFotos = [];
-      try {
-        const dokList = await api(`/api/rapat/${currentRapatId}/dokumen`);
-        dokumentasiFotos = dokList.filter(d => d.jenis === "dokumentasi");
-      } catch (err) {}
-      const dokumentasiSection = `
-        <div class="mt-8 pt-6 border-t-2 border-dashed border-gray-300" style="page-break-before: always;">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-center font-bold text-sm flex-1">DOKUMENTASI KEGIATAN ${escapeHtml((currentRapat.judul_rapat || "").toUpperCase())}</h3>
-          </div>
-          ${dokumentasiFotos.length === 0 ? `
-          <p class="text-sm text-gray-400 text-center no-print">Belum ada foto dokumentasi. Unggah lewat tab Dokumen.</p>` : `
-          <div class="grid grid-cols-2 gap-4">
-            ${dokumentasiFotos.map(f => `
-              <div class="text-center">
-                <img src="${f.url}" class="w-full max-h-56 object-contain border border-gray-300 rounded">
-                <p class="text-xs text-gray-500 mt-1 break-all">${escapeHtml(f.nama_file)}</p>
-              </div>`).join("")}
-          </div>`}
-          ${canEdit ? `<p class="no-print text-xs text-center mt-3"><button onclick="switchRapatTab('dokumen')" class="text-blue-600 hover:underline">Kelola foto dokumentasi di tab Dokumen →</button></p>` : ""}
-        </div>`;
-      const pesertaNama = p => p.pegawai ? p.pegawai.nama : (p.nama_manual || "-");
-      const pesertaJabatan = p => p.pegawai ? p.pegawai.jabatan : [p.jabatan_manual, p.instansi_manual].filter(Boolean).join(" · ");
-      const pesertaPairs = [];
-      for (let i = 0; i < pesertaList.length; i += 2) pesertaPairs.push([pesertaList[i], pesertaList[i + 1] || null]);
-      const pesertaRows = pesertaPairs.map(([a, b]) => `
-        <tr>
-          <td>${a ? escapeHtml(pesertaNama(a)) : ""}</td><td>${a ? escapeHtml(pesertaJabatan(a)) : ""}</td>
-          <td>${b ? escapeHtml(pesertaNama(b)) : ""}</td><td>${b ? escapeHtml(pesertaJabatan(b)) : ""}</td>
-        </tr>`).join("") || `<tr><td colspan="4" class="text-center text-gray-400">Tidak ada peserta tercatat</td></tr>`;
-
+    // Peran/isi editabel (form polos) - pratinjau dokumen resmi (identik
+    // dengan hasil unduhan) ada di bagian bawah, dimuat sesuai permintaan
+    // supaya tidak memicu konversi LibreOffice tiap kali tab ini dibuka.
+    function renderNotulaEditForm(notula, s) {
+      currentNotula = notula;
+      const panel = document.getElementById("rpanel-notula");
       panel.innerHTML = `
-        <div class="no-print flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2 max-w-4xl mx-auto">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2.5 py-1 text-xs rounded-full font-medium ${NOTULA_STATUS_SIMPLE_BADGE[notulaStatusSimpleLabel(notula.status, s)]}">${notulaStatusSimpleLabel(notula.status, s)}</span>
             ${notula.sumber ? `<span class="text-xs text-gray-400">Sumber: ${NOTULA_SUMBER_LABEL[notula.sumber] || notula.sumber}</span>` : ""}
@@ -4070,57 +4499,206 @@
           </div>
           <div class="flex items-center gap-2">
             <span id="notula-saved" class="text-xs text-green-600 hidden">Tersimpan ✓</span>
-            ${canEdit ? `<button onclick="openKbNotulaSettingsModal()" class="text-xs text-gray-500 hover:text-blue-600 hover:underline flex items-center gap-1">
-              <i data-lucide="library" style="width:12px;height:12px"></i> Susun ulang via AI</button>` : ""}
+            <button onclick="openKbNotulaSettingsModal()" class="text-xs text-gray-500 hover:text-blue-600 hover:underline flex items-center gap-1">
+              <i data-lucide="library" style="width:12px;height:12px"></i> Susun ulang via AI</button>
           </div>
         </div>
 
-        <!-- Lembar dokumen - tampilan sama seperti Pratinjau Notula, tetap bisa disunting -->
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 max-w-4xl mx-auto p-10 doc-sheet">
-          <div class="text-center border-b-2 border-gray-800 pb-3 mb-6">
-            <img src="${LOGO_BPS}" class="h-12 mx-auto mb-1" alt="Logo BPS">
-            <p class="font-bold italic text-base">${escapeHtml(appConfig.nama_instansi || "")}</p>
-            <p class="text-[11px] text-gray-600 mt-1">${escapeHtml(appConfig.alamat_instansi || "")}</p>
+        <div class="card p-6 max-w-4xl mx-auto space-y-6">
+          <div>
+            <h3 class="font-bold text-sm mb-2">Pendahuluan</h3>
+            <textarea id="notula-pendahuluan" rows="3"
+                      class="notula-field-font w-full p-3 border border-gray-300 rounded-lg text-sm leading-relaxed resize-y">${escapeHtml(notula.pendahuluan || "")}</textarea>
           </div>
-          <h2 class="text-center font-bold text-base mb-5">NOTULA KEGIATAN ${escapeHtml((currentRapat.judul_rapat || "").toUpperCase())}</h2>
-          <table class="doc-table mb-5">
-            <tr><th style="width:15%">Unit Kerja</th><td style="width:35%">${escapeHtml(currentRapat.unit_kerja || "-")}</td>
-                <th style="width:15%">Tanggal</th><td style="width:35%">${tglSingkat(currentRapat.tanggal)}</td></tr>
-            <tr><th>Topik</th><td>${escapeHtml(currentRapat.judul_rapat || "-")}</td>
-                <th>Tempat</th><td>${escapeHtml(currentRapat.lokasi || "-")}</td></tr>
-          </table>
-          <p class="font-bold text-sm mb-1">Peserta Rapat</p>
-          <table class="doc-table mb-6"><thead><tr><th>Nama</th><th>Jabatan</th><th>Nama</th><th>Jabatan</th></tr></thead>
-            <tbody>${pesertaRows}</tbody></table>
-
-          <h3 class="font-bold text-sm mb-2">Pendahuluan</h3>
-          <textarea id="notula-pendahuluan" rows="3" ${canEdit ? "" : "disabled"}
-                    class="w-full p-3 border ${canEdit ? "border-gray-300" : "border-transparent"} rounded-lg text-sm leading-relaxed resize-y mb-6">${escapeHtml(notula.pendahuluan || "")}</textarea>
-
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="font-bold text-sm">Pembahasan Rapat</h3>
-            ${canEdit ? `<button onclick="edAddItem('notula-pembahasan', 'Poin pembahasan...')" class="text-xs text-blue-600 hover:underline">+ Tambah poin</button>` : ""}
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-bold text-sm">Pembahasan Rapat</h3>
+              <button onclick="edAddItem('notula-pembahasan', 'Poin pembahasan...')" class="text-xs text-blue-600 hover:underline">+ Tambah poin</button>
+            </div>
+            <div id="notula-pembahasan" class="space-y-2"></div>
           </div>
-          <div id="notula-pembahasan" class="mb-6 space-y-2"></div>
-
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="font-bold text-sm">Pertanyaan dan Jawaban</h3>
-            ${canEdit ? `<button onclick="rwAddQa('notula-tanya-jawab')" class="text-xs text-blue-600 hover:underline">+ Tambah tanya jawab</button>` : ""}
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-bold text-sm">Pertanyaan dan Jawaban</h3>
+              <button onclick="rwAddQa('notula-tanya-jawab')" class="text-xs text-blue-600 hover:underline">+ Tambah tanya jawab</button>
+            </div>
+            <div class="border border-gray-200 rounded-xl overflow-hidden">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                  <tr class="text-left text-gray-500 text-xs">
+                    <th class="p-2 font-medium">Pertanyaan</th>
+                    <th class="p-2 font-medium">Jawaban</th>
+                    <th class="p-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody id="notula-tanya-jawab"></tbody>
+              </table>
+            </div>
           </div>
-          <div id="notula-tanya-jawab" class="mb-2"></div>
-
-          ${dokumentasiSection}
         </div>
 
-        <div class="pt-4 max-w-4xl mx-auto">${renderKbSourcesPanelHtml()}</div>
+        <div class="max-w-4xl mx-auto mt-8 pt-6 border-t border-gray-200">
+          <h3 class="font-semibold text-sm text-gray-700 mb-3">Pratinjau Resmi (Word)</h3>
+          <div id="notula-pdf-preview-wrap">
+            <button onclick="loadNotulaPdfPreview()" class="w-full card p-8 text-center text-sm text-gray-500 hover:bg-gray-50">
+              <i data-lucide="file-text" style="width:28px;height:28px;color:#9ca3af;margin:0 auto"></i>
+              <p class="mt-2">Klik untuk memuat pratinjau dokumen Word resmi (mengikuti isian yang terakhir disimpan)</p>
+            </button>
+          </div>
+        </div>
 
-        <div class="no-print flex flex-wrap gap-2 max-w-4xl mx-auto">
-          ${canEdit ? `<button onclick="simpanNotulaAutosave()" class="px-5 py-2.5 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Simpan</button>` : ""}
-          ${canEdit ? `<button onclick="finalisasiNotulaTab()" class="btn-primary px-5 py-2.5 rounded-xl text-sm font-medium">Finalisasi Notula</button>` : ""}
-        </div>`;
-      renderEdList("notula-pembahasan", notula.ringkasan, "Poin pembahasan...");
+        <div class="card p-6 max-w-4xl mx-auto mt-6" id="ttd-section"></div>
+
+        <div class="flex flex-wrap gap-2 max-w-4xl mx-auto mt-4">
+          <button onclick="finalisasiNotulaTab()" class="btn-primary px-5 py-2.5 rounded-xl text-sm font-medium">Finalisasi Notula</button>
+        </div>
+
+        <div class="max-w-4xl mx-auto mt-6">${renderKbSourcesPanelHtml()}</div>`;
+      renderEdList("notula-pembahasan", notula.ringkasan, "Poin pembahasan...", notula.gambar_pembahasan);
       renderRwQaList("notula-tanya-jawab", notula.pertanyaan_jawaban);
+      renderTtdSection();
       lucide.createIcons();
+    }
+
+    // ============================================================
+    // TANDA TANGAN DIGITAL (Notulis) - coret langsung di kanvas, disimpan
+    // sebagai PNG lewat POST .../notula/ttd, lalu disisipkan ke dokumen
+    // ekspor resmi (lihat build_notula_from_template() &
+    // backend/app/services/docx_export.py). Notulis menandatangani dulu,
+    // baru tombol "Ajukan e-TTD Kepala BPS" aktif (placeholder untuk saat
+    // ini - belum terhubung ke portal e-TTD eksternal resmi).
+    // ============================================================
+    let ttdDrawingMode = false;
+
+    function renderTtdSection() {
+      const wrap = document.getElementById("ttd-section");
+      if (!wrap || !currentNotula) return;
+      const sudahTtd = !!currentNotula.notulis_ttd_url;
+      wrap.innerHTML = `
+        <h3 class="font-bold text-sm mb-1">Tanda Tangan Notulis</h3>
+        <p class="text-xs text-gray-500 mb-4">Tanda tangani langsung di layar - tersimpan ke dokumen notula hasil ekspor. Setelah menandatangani, ajukan e-TTD Kepala BPS lewat portal resmi.</p>
+        <div class="max-w-sm">
+          ${sudahTtd && !ttdDrawingMode ? `
+            <div class="border border-gray-200 rounded-xl p-3 bg-white text-center">
+              <img src="${currentNotula.notulis_ttd_url}" alt="Tanda tangan notulis" class="max-h-[170px] mx-auto">
+            </div>
+            <button type="button" onclick="ttdDrawingMode = true; renderTtdSection();" class="mt-2 text-xs text-blue-600 hover:underline">Gambar ulang</button>
+          ` : `
+            <canvas id="ttd-canvas-notulis" width="380" height="170" class="w-full border border-gray-300 rounded-xl bg-white touch-none" style="height:170px"></canvas>
+            <div class="flex gap-2 mt-2">
+              <button type="button" onclick="clearSignaturePad('ttd-canvas-notulis')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Hapus</button>
+              <button type="button" onclick="simpanTtdNotulis()" class="btn-primary px-3 py-1.5 rounded-lg text-xs font-medium">Simpan Tanda Tangan</button>
+              ${sudahTtd ? `<button type="button" onclick="ttdDrawingMode = false; renderTtdSection();" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Batal</button>` : ""}
+            </div>
+          `}
+        </div>
+        <div class="mt-4 pt-4 border-t border-gray-100">
+          <button id="ttd-ettd-btn" type="button" onclick="ajukanEttdKepala()" class="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-2 disabled:opacity-40 disabled:pointer-events-none" ${sudahTtd ? "" : "disabled"}>
+            <i data-lucide="external-link" style="width:14px;height:14px"></i> Ajukan e-TTD Kepala BPS
+          </button>
+          <p class="text-[11px] text-gray-400 mt-1">${sudahTtd ? "Notulis sudah menandatangani - siap diajukan untuk e-TTD Kepala BPS." : "Notulis perlu menandatangani terlebih dahulu sebelum mengajukan e-TTD."}</p>
+        </div>`;
+      if (!sudahTtd || ttdDrawingMode) initSignaturePad("ttd-canvas-notulis");
+      lucide.createIcons();
+    }
+
+    function initSignaturePad(canvasId) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      ctx.strokeStyle = "#1f2937";
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      let drawing = false;
+      const pos = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const p = e.touches ? e.touches[0] : e;
+        return { x: (p.clientX - rect.left) * (canvas.width / rect.width), y: (p.clientY - rect.top) * (canvas.height / rect.height) };
+      };
+      const start = (e) => { drawing = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); };
+      const move = (e) => { if (!drawing) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); };
+      const end = () => { drawing = false; };
+      canvas.onmousedown = start; canvas.onmousemove = move; canvas.onmouseup = end; canvas.onmouseleave = end;
+      canvas.ontouchstart = start; canvas.ontouchmove = move; canvas.ontouchend = end;
+    }
+
+    function clearSignaturePad(canvasId) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    async function simpanTtdNotulis() {
+      const canvas = document.getElementById("ttd-canvas-notulis");
+      if (!canvas) return;
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      if (!blob) return;
+      const fd = new FormData();
+      fd.append("peran", "notulis");
+      fd.append("file", blob, "ttd_notulis.png");
+      try {
+        currentNotula = await api(`/api/rapat/${currentRapatId}/notula/ttd`, { method: "POST", body: fd });
+        ttdDrawingMode = false;
+        showToast("Tanda tangan tersimpan.", "success");
+        renderTtdSection();
+      } catch (err) { showToast("Gagal menyimpan tanda tangan: " + err.message); }
+    }
+
+    function ajukanEttdKepala() {
+      showToast("Fitur pengajuan e-TTD eksternal belum dikonfigurasi.", "info");
+    }
+
+    // Tampilan lihat-saja (pegawai peserta non-notulis, atau rapat yang
+    // sudah diarsipkan) - langsung dokumen Word resmi, tanpa form sunting.
+    async function renderNotulaPreviewOnly(notula, s) {
+      const panel = document.getElementById("rpanel-notula");
+      panel.innerHTML = `
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2 max-w-4xl mx-auto">
+          <span class="px-2.5 py-1 text-xs rounded-full font-medium ${NOTULA_STATUS_SIMPLE_BADGE[notulaStatusSimpleLabel(notula.status, s)]}">${notulaStatusSimpleLabel(notula.status, s)}</span>
+          <div class="flex items-center gap-2">
+            <button onclick="unduhNotulaFile('pdf')" class="px-4 py-2 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-2"><i data-lucide="file-down" style="width:14px;height:14px"></i> Unduh PDF</button>
+            <button onclick="unduhNotulaFile('docx')" class="btn-primary px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2"><i data-lucide="file-down" style="width:14px;height:14px"></i> Unduh Word</button>
+          </div>
+        </div>
+        <div id="notula-pdf-preview-wrap"></div>`;
+      lucide.createIcons();
+      await loadNotulaPdfPreview();
+    }
+
+    // Sama-sama dipakai renderNotulaEditForm() & renderNotulaPreviewOnly() -
+    // memuat PDF hasil build_notula_from_template() (template Word resmi
+    // BPS, lihat backend/app/assets/notula_template.docx) lewat blob supaya
+    // header Authorization ikut terkirim (src iframe langsung tidak bisa).
+    async function loadNotulaPdfPreview() {
+      const wrap = document.getElementById("notula-pdf-preview-wrap");
+      if (!wrap) return;
+      wrap.className = "max-w-4xl mx-auto card overflow-hidden";
+      wrap.style.height = "80vh";
+      wrap.innerHTML = `<div class="w-full h-full flex items-center justify-center text-sm text-gray-400"><i data-lucide="loader-circle" class="animate-spin" style="width:24px;height:24px"></i></div>`;
+      lucide.createIcons();
+      try {
+        const res = await api(`/api/rapat/${currentRapatId}/export/pdf`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        wrap.innerHTML = `<iframe src="${url}" class="w-full h-full border-0" title="Pratinjau Notula"></iframe>`;
+      } catch (err) {
+        wrap.className = "max-w-4xl mx-auto";
+        wrap.style.height = "";
+        wrap.innerHTML = `<p class="text-sm text-red-500 p-6 text-center card">Gagal memuat pratinjau: ${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    async function unduhNotulaFile(format) {
+      try {
+        const res = await api(`/api/rapat/${currentRapatId}/export/${format}`);
+        const blob = await res.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `Notula - ${currentRapat.judul_rapat}.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch (err) { showToast("Gagal mengunduh: " + err.message); }
     }
 
     function pollNotulaStatus() {
@@ -4425,6 +5003,13 @@
       "Memisahkan jeda dan bagian hening...",
       "Transkripsi sedang berjalan...",
     ];
+    // Dipakai saat sumber bukan rekaman audio (dokumen/transkrip manual) -
+    // hindari kata "mendengarkan"/"audio" yang tidak relevan (item #57).
+    const FUN_MESSAGES_PREP = [
+      "Membaca transkrip yang diberikan...",
+      "Menyiapkan teks untuk diringkas...",
+      "Memeriksa kelengkapan transkrip...",
+    ];
     const FUN_MESSAGES_LLM = [
       "Mencatat poin demi poin pembahasan...",
       "Memilah bagian yang paling penting...",
@@ -4482,16 +5067,21 @@
       if (funTimer) startFunMessages();
     }
 
+    function currentFunMessages() {
+      if (progressPhase === "llm") return FUN_MESSAGES_LLM;
+      return currentProcessUsesSTT ? FUN_MESSAGES_STT : FUN_MESSAGES_PREP;
+    }
+
     function startFunMessages() {
       stopFunMessages();
-      const messages = progressPhase === "llm" ? FUN_MESSAGES_LLM : FUN_MESSAGES_STT;
+      const messages = currentFunMessages();
       const el = document.getElementById("fun-message");
       funIdx = 0;
       el.textContent = messages[0];
       funTimer = setInterval(() => {
         el.classList.add("fade");
         setTimeout(() => {
-          const current = progressPhase === "llm" ? FUN_MESSAGES_LLM : FUN_MESSAGES_STT;
+          const current = currentFunMessages();
           funIdx = (funIdx + 1) % current.length;
           el.textContent = current[funIdx];
           el.classList.remove("fade");
@@ -4572,7 +5162,8 @@
               return;
             }
             setRing(30);
-            document.getElementById("stage-text").textContent = "Memproses transkripsi audio...";
+            document.getElementById("stage-text").textContent = currentProcessUsesSTT
+              ? "Memproses transkripsi audio..." : "Menyiapkan transkrip...";
             updateGlobalIndicator(30);
             if (r.status_transkrip !== "siap") return;   // masih berjalan, cek lagi poll berikutnya
 
@@ -4716,7 +5307,7 @@
     }
 
     async function loadArsip() {
-      document.getElementById("arsip-buat-btn").classList.toggle("hidden", !canWrite());
+      document.getElementById("arsip-buat-btn").classList.toggle("hidden", !canCreateRapat());
       document.getElementById("arsip-select-all").classList.toggle("hidden", !canWrite());
       const q = document.getElementById("arsip-search").value.trim();
       const status = document.getElementById("arsip-filter-status").value;
@@ -4879,105 +5470,33 @@
       try {
         const d = await api(`/api/meetings/${id}`);
         previewData = d; currentMeetingId = id; currentMeetingTitle = d.judul_rapat;
-        renderPreview(d);
         showPage("preview");
         document.getElementById("preview-edit-btn").classList.toggle("hidden", !canWrite());
         lucide.createIcons();
+        await renderPreview(d);
       } catch (err) { showToast("Gagal membuka notula: " + err.message); }
     }
 
-    function renderPreview(d) {
-      const kepala = pegawaiList.find(p => (p.jabatan || "").toLowerCase().includes("kepala bps"));
-      const kota = (d.unit_kerja || appConfig.unit_kerja_default || "Sanggau").split(" ").pop();
-
-      // tabel peserta berpasangan 2 kolom
-      const pairs = [];
-      for (let i = 0; i < d.peserta.length; i += 2) pairs.push([d.peserta[i], d.peserta[i + 1] || null]);
-      const pesertaRows = pairs.map(([a, b]) => `
-        <tr>
-          <td>${escapeHtml(a ? a.nama : "")}</td><td>${escapeHtml(a ? a.jabatan : "")}</td>
-          <td>${escapeHtml(b ? b.nama : "")}</td><td>${escapeHtml(b ? b.jabatan : "")}</td>
-        </tr>`).join("") || `<tr><td colspan="4" class="text-center text-gray-400">Tidak ada peserta tercatat</td></tr>`;
-
-      const pendahuluan = (() => {
-        let t = `Pada hari ${tglLengkap(d.tanggal)}`;
-        if (d.waktu_mulai) t += `, pukul ${jamWIB(d.waktu_mulai)}`;
-        t += `, telah dilaksanakan <b>${escapeHtml(d.judul_rapat)}</b>.`;
-        if (d.pimpinan) t += ` Rapat ini dipimpin langsung oleh <b>${escapeHtml(d.pimpinan.nama)}</b> (${escapeHtml(d.pimpinan.jabatan)}).`;
-        const dur = durasiJam(d.waktu_mulai, d.waktu_selesai);
-        if (dur !== "-") {
-          t += ` Kegiatan rapat berlangsung selama ${dur}`;
-          if (d.waktu_selesai) t += ` dan berakhir pada pukul ${jamWIB(d.waktu_selesai)}`;
-          t += `.`;
-        }
-        return t;
-      })();
-
-      const pembahasan = d.ringkasan.length
-        ? d.ringkasan.map((p, i) => `<p class="mb-2 text-sm"><b>${i + 1}.</b> ${escapeHtml(p)}</p>`).join("")
-        : `<p class="text-sm text-gray-400">Tidak ada poin pembahasan tercatat.</p>`;
-
-      const keputusan = d.keputusan.length
-        ? `<ul class="list-disc pl-6 text-sm space-y-1">${d.keputusan.map(k => `<li>${escapeHtml(k)}</li>`).join("")}</ul>`
-        : `<p class="text-sm text-gray-400">Tidak ada keputusan tercatat.</p>`;
-
-      const tindakLanjut = d.tindak_lanjut.length ? `
-        <table class="mt-2"><thead><tr><th>Action Item</th><th>Penanggung Jawab</th><th>Deadline</th><th>Status</th></tr></thead>
-        <tbody>${d.tindak_lanjut.map(t => `
-          <tr><td>${escapeHtml(t.deskripsi)}</td><td>${escapeHtml(t.penanggung_jawab || "-")}</td>
-          <td>${escapeHtml(t.deadline || "-")}</td><td>${escapeHtml(t.status)}</td></tr>`).join("")}</tbody></table>`
-        : `<p class="text-sm text-gray-400">Tidak ada tindak lanjut teridentifikasi.</p>`;
-
-      const dokumentasi = (d.dokumentasi || []).length ? `
-        <div class="mt-8" style="page-break-before: always;">
-          <h3 class="text-center font-bold text-sm mb-4">DOKUMENTASI KEGIATAN ${escapeHtml(d.judul_rapat.toUpperCase())}</h3>
-          <div class="grid grid-cols-2 gap-4">
-            ${d.dokumentasi.map(f => `
-              <div class="text-center">
-                <img src="${f.url}" class="w-full max-h-56 object-contain border border-gray-300 rounded">
-                ${f.keterangan ? `<p class="text-xs italic mt-1">${escapeHtml(f.keterangan)}</p>` : ""}
-              </div>`).join("")}
-          </div>
-        </div>` : "";
-
-      document.getElementById("preview-doc").innerHTML = `
-        <div class="text-center border-b-2 border-gray-800 pb-3 mb-6">
-          <img src="${LOGO_BPS}" class="h-12 mx-auto mb-1" alt="Logo BPS">
-          <p class="font-bold italic text-base">${escapeHtml(appConfig.nama_instansi || "")}</p>
-          <p class="text-[11px] text-gray-600 mt-1">${escapeHtml(appConfig.alamat_instansi || "")}</p>
-        </div>
-        <h2 class="text-center font-bold text-base mb-5">NOTULA KEGIATAN ${escapeHtml(d.judul_rapat.toUpperCase())}</h2>
-        <table class="mb-5">
-          <tr><th style="width:15%">Unit Kerja</th><td style="width:35%">${escapeHtml(d.unit_kerja || "-")}</td>
-              <th style="width:15%">Tanggal</th><td style="width:35%">${tglSingkat(d.tanggal)}</td></tr>
-          <tr><th>Topik</th><td>${escapeHtml(d.judul_rapat)}</td>
-              <th>Tempat</th><td>${escapeHtml(d.lokasi || "-")}</td></tr>
-        </table>
-        <p class="font-bold text-sm mb-1">Peserta Rapat</p>
-        <table class="mb-6"><thead><tr><th>Nama</th><th>Jabatan</th><th>Nama</th><th>Jabatan</th></tr></thead>
-          <tbody>${pesertaRows}</tbody></table>
-        <h3 class="font-bold text-sm mb-2">Pendahuluan</h3>
-        <p class="text-sm mb-5 leading-relaxed">${pendahuluan}</p>
-        <h3 class="font-bold text-sm mb-2">Pembahasan Rapat</h3>
-        <div class="mb-5">${pembahasan}</div>
-        <h3 class="font-bold text-sm mb-2">Keputusan Rapat</h3>
-        <div class="mb-5">${keputusan}</div>
-        <h3 class="font-bold text-sm mb-2">Tindak Lanjut</h3>
-        <div class="mb-8">${tindakLanjut}</div>
-        <p class="text-right text-sm mb-4">${escapeHtml(kota)}, ${tglSingkat(d.tanggal)}</p>
-        <div class="flex justify-between text-sm" style="min-height:120px">
-          <div>
-            <p>Mengetahui,</p>
-            <p>Kepala ${escapeHtml(d.unit_kerja || appConfig.unit_kerja_default || "")}</p>
-            <p class="mt-20 font-bold underline">${escapeHtml(kepala ? kepala.nama : "-")}</p>
-          </div>
-          <div class="text-left">
-            <p>&nbsp;</p>
-            <p>Notulis:</p>
-            <p class="mt-20 font-bold underline">${escapeHtml(d.notulis ? d.notulis.nama : "-")}</p>
-          </div>
-        </div>
-        ${dokumentasi}`;
+    // Pratinjau memuat dokumen Word RESMI (notula_template.docx, lihat
+    // build_notula_from_template() di backend) yang sama dengan hasil
+    // export Word/PDF - bukan rekonstruksi tampilan HTML terpisah, supaya
+    // apa yang dilihat pengguna selalu identik dengan berkas yang diunduh.
+    async function renderPreview(d) {
+      const el = document.getElementById("preview-doc");
+      el.className = "max-w-4xl mx-auto card overflow-hidden";
+      el.style.height = "80vh";
+      el.innerHTML = `<div class="w-full h-full flex items-center justify-center text-sm text-gray-400"><i data-lucide="loader-circle" class="animate-spin" style="width:24px;height:24px"></i></div>`;
+      lucide.createIcons();
+      try {
+        const res = await api(`/api/meetings/${d.id}/export/pdf`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        el.innerHTML = `<iframe src="${url}" class="w-full h-full border-0" title="Pratinjau Notula"></iframe>`;
+      } catch (err) {
+        el.className = "max-w-4xl mx-auto";
+        el.style.height = "";
+        el.innerHTML = `<p class="text-sm text-red-500 p-6 text-center card">Gagal memuat pratinjau: ${escapeHtml(err.message)}</p>`;
+      }
     }
 
     // ---- Share ----
@@ -5071,7 +5590,7 @@
 
         const opts = pegawaiOptionsHtml();
         document.getElementById("ed-pimpinan").innerHTML = opts;
-        document.getElementById("ed-notulis").innerHTML = opts;
+        document.getElementById("ed-notulis").innerHTML = notulisOptionsHtml(d.notulis ? d.notulis.id : undefined);
         if (d.pimpinan) document.getElementById("ed-pimpinan").value = d.pimpinan.id;
         if (d.notulis) document.getElementById("ed-notulis").value = d.notulis.id;
 
@@ -5125,20 +5644,51 @@
     }
 
     // ---- daftar poin (pembahasan / keputusan) ----
-    function edLineHtml(text, placeholder) {
+    // imgIndex/imgPaths (opsional, item #61) - dipakai HANYA oleh tab Notula
+    // rapat baru ("notula-pembahasan") untuk menyisipkan gambar/grafik di
+    // antara poin pembahasan; pemanggil lain (mis. editor alur lama
+    // "ed-ringkasan"/"ed-keputusan") tidak mengirim parameter ini sehingga
+    // baris gambar tidak pernah dirender untuk mereka (aman, tanpa efek).
+    // Keterkaitan gambar ke poin berbasis INDEKS TERAKHIR DISIMPAN (index di
+    // gambar_pembahasan backend), jadi tab dirender ulang tiap kali gambar
+    // diunggah/dihapus supaya nomor indeks yang ditampilkan selalu akurat -
+    // menambah/menghapus poin teks TANPA menyimpan dulu bisa membuat indeks
+    // yang ditampilkan sedikit meleset sampai disimpan ulang (batasan v1).
+    function edLineHtml(text, placeholder, imgIndex, imgPaths) {
+      const imgRow = imgIndex === undefined ? "" : `
+        <div class="flex flex-wrap items-center gap-2 mt-1 ml-5">
+          ${(imgPaths || []).map(p => `
+            <div class="relative group/img">
+              <img src="/media/dokumen/${p}" class="h-14 w-auto rounded border border-gray-200">
+              <button type="button" onclick="hapusGambarPembahasan(${imgIndex}, '${p}')" title="Hapus gambar"
+                      class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] leading-4 opacity-0 group-hover/img:opacity-100">&times;</button>
+            </div>`).join("")}
+          ${(imgPaths || []).length < 2 ? `
+            <label class="text-xs text-blue-600 hover:underline cursor-pointer">
+              + Gambar
+              <input type="file" accept="image/*" class="hidden" onchange="tambahGambarPembahasan(${imgIndex}, this)">
+            </label>` : ""}
+        </div>`;
       return `
-        <div class="flex items-start gap-2 group">
-          <span class="text-gray-400 mt-1 text-sm">&bull;</span>
-          <div contenteditable="true" data-placeholder="${placeholder}"
-               class="ed-line flex-1 outline-none text-sm rounded px-2 py-1 border border-transparent hover:border-gray-200 focus:border-blue-300">${escapeHtml(text)}</div>
-          <button onclick="this.parentElement.remove()" title="Hapus poin"
-                  class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-1">&times;</button>
+        <div class="ed-line-wrap group">
+          <div class="flex items-start gap-2">
+            <span class="text-gray-400 mt-1 text-sm">&bull;</span>
+            <div contenteditable="true" data-placeholder="${placeholder}"
+                 class="ed-line flex-1 outline-none text-sm rounded px-2 py-1 border border-transparent hover:border-gray-200 focus:border-blue-300">${escapeHtml(text)}</div>
+            <button onclick="this.closest('.ed-line-wrap').remove()" title="Hapus poin"
+                    class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-1">&times;</button>
+          </div>
+          ${imgRow}
         </div>`;
     }
 
-    function renderEdList(containerId, items, placeholder) {
+    function renderEdList(containerId, items, placeholder, gambarPembahasan) {
       const el = document.getElementById(containerId);
-      el.innerHTML = (items && items.length ? items : [""]).map(t => edLineHtml(t, placeholder)).join("");
+      const withImages = gambarPembahasan !== undefined;
+      const imgByIndex = {};
+      (gambarPembahasan || []).forEach(g => { imgByIndex[g.index] = g.paths; });
+      el.innerHTML = (items && items.length ? items : [""]).map((t, i) =>
+        edLineHtml(t, placeholder, withImages ? i : undefined, imgByIndex[i])).join("");
     }
 
     function edAddItem(containerId, placeholder) {
@@ -5147,6 +5697,24 @@
       el.insertAdjacentHTML("beforeend", edLineHtml("", ph));
       const lines = el.querySelectorAll(".ed-line");
       lines[lines.length - 1].focus();
+    }
+
+    async function tambahGambarPembahasan(index, input) {
+      if (!input.files.length) return;
+      const fd = new FormData();
+      fd.append("index", index);
+      fd.append("file", input.files[0]);
+      try {
+        currentNotula = await api(`/api/rapat/${currentRapatId}/notula/gambar`, { method: "POST", body: fd });
+        renderEdList("notula-pembahasan", currentNotula.ringkasan, "Poin pembahasan...", currentNotula.gambar_pembahasan);
+      } catch (err) { showToast("Gagal mengunggah gambar: " + err.message); }
+    }
+
+    async function hapusGambarPembahasan(index, path) {
+      try {
+        currentNotula = await api(`/api/rapat/${currentRapatId}/notula/gambar?index=${index}&path=${encodeURIComponent(path)}`, { method: "DELETE" });
+        renderEdList("notula-pembahasan", currentNotula.ringkasan, "Poin pembahasan...", currentNotula.gambar_pembahasan);
+      } catch (err) { showToast("Gagal menghapus gambar: " + err.message); }
     }
 
     function edCollect(containerId) {
@@ -5194,16 +5762,20 @@
     // Buat Rapat & tab Notula halaman detail, lihat rwQaRowHtml dkk) ----
     function rwQaRowHtml(item) {
       return `
-        <div class="rw-qa-row flex items-start gap-2 border border-gray-200 rounded-lg p-3 mb-2 group">
-          <div class="flex-1 space-y-1.5">
-            <input class="ed-in rw-qa-pertanyaan font-medium border-b border-gray-100 pb-1" type="text"
+        <tr class="rw-qa-row group">
+          <td class="p-2 align-top border-t border-gray-100 w-1/2">
+            <input class="ed-in rw-qa-pertanyaan w-full font-medium" type="text"
                    placeholder="Pertanyaan..." value="${escapeHtml(item ? item.pertanyaan : "")}">
-            <input class="ed-in rw-qa-jawaban text-gray-600" type="text"
+          </td>
+          <td class="p-2 align-top border-t border-gray-100 w-1/2">
+            <input class="ed-in rw-qa-jawaban w-full text-gray-600" type="text"
                    placeholder="Jawaban..." value="${escapeHtml(item ? item.jawaban : "")}">
-          </div>
-          <button onclick="this.closest('.rw-qa-row').remove()" title="Hapus"
-                  class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-1">&times;</button>
-        </div>`;
+          </td>
+          <td class="p-2 align-top border-t border-gray-100 text-center w-8">
+            <button type="button" onclick="this.closest('tr').remove()" title="Hapus"
+                    class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-1">&times;</button>
+          </td>
+        </tr>`;
     }
 
     function renderRwQaList(containerId, items) {
@@ -5670,13 +6242,7 @@
     // Kartu "Sumber/Konteks yang digunakan" - ditaruh di tab Notula (rapat-detail),
     // di luar #notula-pendahuluan dkk supaya tidak ikut ke dokumen/export resmi (no-print).
     function renderKbSourcesPanelHtml() {
-      if (!kbLastUsedContext) {
-        return `<div class="no-print card p-4 mb-4 max-w-4xl mx-auto flex items-center gap-3">
-          <i data-lucide="sparkles" style="width:16px;height:16px;color:#9ca3af" class="flex-shrink-0"></i>
-          <p class="text-xs text-gray-400">Knowledge Base belum diaktifkan untuk notula ini. Aktifkan lewat
-            "Pengaturan Knowledge Base" di atas untuk melihat pratinjau sumber/konteks yang dipakai.</p>
-        </div>`;
-      }
+      if (!kbLastUsedContext) return "";
       const { dokumen, riwayat } = kbLastUsedContext;
       const chip = (icon, title, sub) => `
         <div class="flex items-start gap-2.5 px-3 py-2 rounded-lg bg-gray-50">
@@ -5715,9 +6281,13 @@
       document.querySelectorAll(".theme-toggle-label").forEach(el => el.textContent = THEME_LABEL[mode]);
       lucide.createIcons();
     }
-    function toggleTheme() {
+    async function toggleTheme() {
       const current = localStorage.getItem("notasi_theme") || "auto";
-      applyTheme({ auto: "light", light: "dark", dark: "auto" }[current]);
+      const next = { auto: "light", light: "dark", dark: "auto" }[current];
+      showProcessing(`Mengganti mode ke ${THEME_LABEL[next]}...`);
+      await sleep(250);
+      applyTheme(next);
+      hideProcessing();
     }
 
     function toggleSidebar() {

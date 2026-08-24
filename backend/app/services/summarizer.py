@@ -42,7 +42,13 @@ Jika ada "Konteks dari dokumen referensi/pedoman", itu BUKAN bagian dari rapat -
 transkrip tetap satu-satunya sumber tentang apa yang benar-benar dibahas/diputuskan.
 Pakai konteks itu HANYA untuk membantu Anda memahami istilah, singkatan, aturan, atau
 angka yang disebut sekilas di transkrip; jangan menambahkan poin ringkasan/keputusan
-yang isinya berasal dari dokumen referensi tapi tidak disinggung di transkrip."""
+yang isinya berasal dari dokumen referensi tapi tidak disinggung di transkrip.
+
+Setiap poin pada "ringkasan" dan "keputusan" WAJIB berupa penjelasan yang cukup
+lengkap (satu paragraf pendek, idealnya 2-4 kalimat) - bukan frasa singkat satu
+baris. Jelaskan konteksnya, sebutkan angka/nama/pihak terkait yang relevan, dan
+implikasi atau alasannya bila disebutkan di transkrip. Hindari poin yang cuma
+berupa judul topik tanpa penjelasan."""
 
 SYSTEM_PROMPT_RINGKAS = """Anda adalah asisten AI yang bertugas membuat notulensi rapat instansi pemerintah.
 Baca transkrip rapat berikut, lalu hasilkan output HANYA dalam format JSON valid
@@ -68,7 +74,13 @@ Jika ada "Konteks dari dokumen referensi/pedoman", itu BUKAN bagian dari rapat -
 transkrip tetap satu-satunya sumber tentang apa yang benar-benar dibahas. Pakai
 konteks itu HANYA untuk membantu Anda memahami istilah/aturan/angka yang disebut
 sekilas di transkrip; jangan menambahkan poin pembahasan yang isinya berasal dari
-dokumen referensi tapi tidak disinggung di transkrip."""
+dokumen referensi tapi tidak disinggung di transkrip.
+
+Setiap poin pada "ringkasan" WAJIB berupa penjelasan yang cukup lengkap (satu
+paragraf pendek, idealnya 2-4 kalimat) - bukan frasa singkat satu baris. Jelaskan
+konteksnya, sebutkan angka/nama/pihak terkait yang relevan, dan implikasi atau
+alasannya bila disebutkan di transkrip. Hindari poin yang cuma berupa judul topik
+tanpa penjelasan."""
 
 
 def _demo_result() -> dict:
@@ -169,7 +181,19 @@ def _summarize_ollama(transcript_text: str, meeting_context: dict, system_prompt
         ],
         "format": "json",   # Ollama >= 0.1.29 mendukung mode output JSON
         "stream": False,
-        "options": {"temperature": 0.2, "num_gpu": settings.OLLAMA_NUM_GPU},
+        "options": {
+            "temperature": 0.2,
+            "num_gpu": settings.OLLAMA_NUM_GPU,
+            # num_ctx: lihat catatan panjang di config.py - default Ollama
+            # (2048) memotong diam-diam sebagian besar transkrip rapat asli,
+            # penyebab paling umum ringkasan yang "tidak nyambung" dengan isi
+            # rapat sesungguhnya.
+            "num_ctx": settings.OLLAMA_NUM_CTX,
+            # repeat_penalty > 1 mengurangi kecenderungan model kecil lokal
+            # mengulang frasa/kalimat yang sama persis - gejala umum lain
+            # dari ringkasan yang terasa "tidak sesuai" pada model 3B.
+            "repeat_penalty": 1.15,
+        },
     }
     # Model lokal yang lebih kecil kadang menghasilkan JSON terpotong/rusak
     # (bervariasi antar percobaan walau prompt sama) - coba beberapa kali

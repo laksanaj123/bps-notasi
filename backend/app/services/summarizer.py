@@ -251,7 +251,15 @@ def _normalize_qa(value) -> list:
         jawaban = str(item.get("jawaban", "")).strip()
         if not pertanyaan and not jawaban:
             continue
-        hasil.append({"pertanyaan": pertanyaan, "jawaban": jawaban})
+        # nama_penanya/nama_penjawab (item #12) - AI tidak diminta mengisi ini,
+        # tapi kalau provider LLM kebetulan mengembalikannya, tetap dipakai;
+        # kalau tidak ada, notulis melengkapi manual lewat form.
+        hasil.append({
+            "pertanyaan": pertanyaan,
+            "jawaban": jawaban,
+            "nama_penanya": str(item.get("nama_penanya", "")).strip(),
+            "nama_penjawab": str(item.get("nama_penjawab", "")).strip(),
+        })
     return hasil
 
 

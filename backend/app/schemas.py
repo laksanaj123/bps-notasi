@@ -7,6 +7,10 @@ from pydantic import BaseModel
 class LoginRequest(BaseModel):
     username: str
     password: str
+    # "Ingat saya" - saat True, token yang diterbitkan pakai masa berlaku
+    # panjang (ACCESS_TOKEN_EXPIRE_MINUTES_REMEMBER) supaya pengguna tidak
+    # perlu login ulang tiap buka browser baru. Default False = sesi pendek.
+    ingat_saya: bool = False
 
 
 class Token(BaseModel):
@@ -20,6 +24,7 @@ class UserOut(BaseModel):
     username: str
     role: str
     jabatan: Optional[str] = None
+    tim: Optional[str] = None
     # Dipakai frontend (canCreateRapat()) untuk otomatis menampilkan tombol
     # "Buat Rapat" ke pegawai yang pernah ditunjuk notulis di rapat manapun -
     # cuma diisi oleh endpoint /api/auth/me, default False di tempat lain.
@@ -36,6 +41,8 @@ class UserCreate(BaseModel):
     password: str
     role: str = "pegawai"
     jabatan: Optional[str] = None
+    no_whatsapp: Optional[str] = None
+    tim: Optional[str] = None
 
 
 class UserAdminOut(BaseModel):
@@ -47,6 +54,8 @@ class UserAdminOut(BaseModel):
     jabatan: Optional[str] = None
     is_active: bool
     must_reset_password: bool = False
+    no_whatsapp: Optional[str] = None
+    tim: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -59,6 +68,8 @@ class UserDirectoryOut(BaseModel):
     nama: str
     jabatan: Optional[str] = None
     role: str
+    no_whatsapp: Optional[str] = None
+    tim: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -70,6 +81,8 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     jabatan: Optional[str] = None
     is_active: Optional[bool] = None
+    no_whatsapp: Optional[str] = None
+    tim: Optional[str] = None
 
 
 # ---------- "Kelola Pengguna" gabungan (dulu Pegawai) - ringkasan seorang
@@ -80,6 +93,8 @@ class PegawaiOut(BaseModel):
     id: int
     nama: str
     jabatan: Optional[str] = None
+    no_whatsapp: Optional[str] = None
+    tim: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -226,6 +241,10 @@ class DashboardStats(BaseModel):
     notulensi_bulan_ini: int
     total_arsip: int
     grafik_per_bulan: dict
+    # Kartu dashboard baru: jumlah rapat per tim (tahun berjalan) & jumlah rapat
+    # yang melibatkan pengguna yang login sebagai peserta/undangan.
+    per_tim: dict = {}
+    rapat_pegawai: int = 0
 
 
 # ============================================================
@@ -240,11 +259,13 @@ class RapatCreate(BaseModel):
     judul_rapat: str
     tanggal: str
     unit_kerja: Optional[str] = None
+    tim: Optional[str] = None
     waktu_mulai: Optional[str] = None
     waktu_selesai: Optional[str] = None
     lokasi: Optional[str] = None
     jenis_media: Optional[str] = None
     pimpinan_id: Optional[int] = None
+    notulis_id: Optional[int] = None   # kalau kosong, pembuat rapat jadi notulis
     agenda: Optional[str] = None
     catatan_notulis: Optional[str] = None   # "Keterangan"
 
@@ -254,6 +275,7 @@ class RapatUpdate(BaseModel):
     judul_rapat: Optional[str] = None
     tanggal: Optional[str] = None
     unit_kerja: Optional[str] = None
+    tim: Optional[str] = None
     waktu_mulai: Optional[str] = None
     waktu_selesai: Optional[str] = None
     lokasi: Optional[str] = None
@@ -285,6 +307,7 @@ class RapatOut(BaseModel):
     judul_rapat: str
     tanggal: str
     unit_kerja: Optional[str] = None
+    tim: Optional[str] = None
     waktu_mulai: Optional[str] = None
     waktu_selesai: Optional[str] = None
     lokasi: Optional[str] = None
@@ -388,6 +411,21 @@ class DokumenOut(BaseModel):
     status: str
     diunggah_pasca_rapat: bool = False
     diunggah_pada: datetime
+    koordinat: Optional[str] = None  # "lat,lon" - item #7, hanya diisi utk jenis=dokumentasi
+
+    class Config:
+        from_attributes = True
+
+
+# ---------- Notifikasi ----------
+class NotifikasiOut(BaseModel):
+    id: int
+    judul: str
+    pesan: Optional[str] = None
+    rapat_id: Optional[int] = None
+    rapat_judul: Optional[str] = None
+    dibaca: bool = False
+    dibuat_pada: datetime
 
     class Config:
         from_attributes = True
@@ -484,6 +522,10 @@ class TindakLanjutOut(BaseModel):
 class PertanyaanJawabanIn(BaseModel):
     pertanyaan: str = ""
     jawaban: str = ""
+    # Item #12 - nama penanya/penjawab, diisi manual oleh notulis (AI tidak
+    # diminta menebak nama karena umumnya tidak disebut jelas di transkrip).
+    nama_penanya: str = ""
+    nama_penjawab: str = ""
 
 
 class GambarPembahasanItem(BaseModel):
@@ -493,10 +535,18 @@ class GambarPembahasanItem(BaseModel):
     paths: List[str] = []
 
 
+class RingkasanItem(BaseModel):
+    """Satu baris Pembahasan Rapat - teks bebas + tipe (poin bullet atau
+    paragraf narasi mengalir, lihat edLineHtml()/edCollect() di frontend dan
+    _expand_pembahasan() di docx_export.py yang merender keduanya beda gaya)."""
+    teks: str = ""
+    tipe: str = "poin"  # "poin" | "paragraf"
+
+
 class NotulaUpdate(BaseModel):
     """Autosave - kirim field yang berubah saja."""
     pendahuluan: Optional[str] = None
-    ringkasan: Optional[List[str]] = None
+    ringkasan: Optional[List[RingkasanItem]] = None
     pertanyaan_jawaban: Optional[List[PertanyaanJawabanIn]] = None
     keputusan: Optional[List[str]] = None
     catatan_tambahan: Optional[str] = None
@@ -507,7 +557,7 @@ class NotulaOut(BaseModel):
     id: int
     status: str
     pendahuluan: Optional[str] = None
-    ringkasan: List[str] = []
+    ringkasan: List[RingkasanItem] = []
     pertanyaan_jawaban: List[PertanyaanJawabanIn] = []
     keputusan: List[str] = []
     catatan_tambahan: Optional[str] = None
@@ -522,3 +572,33 @@ class NotulaOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---------- Surat Undangan (menu "Rapat", langkah Pratinjau/Blast - TERIKAT
+# ke satu rapat; penerima & nomor WA diambil dari peserta undangan rapat,
+# bukan diketik ulang). ----------
+class UndanganPratinjauIn(BaseModel):
+    """Field surat yang boleh diedit user di langkah Pratinjau. Field jadwal
+    (hari_tanggal/waktu/tempat/agenda) default terisi dari data rapat tapi tetap
+    boleh ditimpa; daftar penerima TIDAK di sini - selalu dari peserta rapat."""
+    nomor_surat: str = "-"
+    sifat: str = "Biasa"
+    lampiran: str = "-"
+    hal: str = "-"
+    kota: str = "Sanggau"
+    tanggal_surat: str = "-"
+    dasar: str = "-"
+    hari_tanggal: str = "-"
+    waktu: str = "-"
+    tempat: str = "-"
+    agenda: str = "-"
+
+
+class UndanganBlastIn(BaseModel):
+    pesan: str
+
+
+# ---------- "Pilih Rapat Tim" (langkah Peserta) - isi ulang daftar undangan
+# dari semua pegawai yang timnya memuat `tim`. ----------
+class PesertaTimIn(BaseModel):
+    tim: str

@@ -25,6 +25,7 @@ JS) memanggil REST API FastAPI, data disimpan di SQLite.
 9. [Mempercepat Transkripsi](#9-mempercepat-transkripsi)
 10. [Keterbatasan & Catatan Produksi](#10-keterbatasan--catatan-produksi)
 11. [Troubleshooting](#11-troubleshooting)
+12. [Kirim WhatsApp Otomatis](#12-kirim-whatsapp-otomatis)
 
 ---
 
@@ -416,3 +417,65 @@ atau pakai model lebih ringan (`ollama pull llama3.2:3b`).
 **Output Ollama rusak/terpotong** (kata dobel, JSON tidak valid): gejala
 umum dari offload otomatis ke GPU yang bermasalah di sebagian mesin.
 `OLLAMA_NUM_GPU=0` (default) memaksa CPU-only sebagai setelan aman.
+
+## 12. Kirim WhatsApp Otomatis
+
+Undangan rapat & notula bisa dikirim ke WhatsApp pegawai lewat dua jalur,
+tampil sebagai kartu "Kirim Undangan via WhatsApp" (tab Peserta) dan "Kirim
+Notula via WhatsApp" (tab Notula) di halaman Detail Rapat:
+
+- **Tautan `wa.me` manual** (`backend/app/services/whatsapp.py` tidak
+  terlibat) — selalu aktif tanpa konfigurasi apa pun. Tiap peserta punya
+  tombol yang membuka chat WhatsApp dengan pesan siap kirim; Anda tetap
+  menekan tombol "Kirim" di WhatsApp sendiri (batasan `wa.me`: 1 penerima
+  per tautan, tidak bisa dipicu otomatis oleh halaman web).
+- **Kirim Otomatis** (server-side, **WhatsApp Cloud API resmi Meta** —
+  bukan library tidak resmi seperti Baileys/whatsapp-web.js yang melanggar
+  Ketentuan Layanan WhatsApp) — benar-benar terkirim tanpa klik manual sama
+  sekali. Tombolnya baru muncul setelah kredensial diisi di `.env`.
+
+### Blast undangan dari halaman "Rapat" (via whacenter — TIDAK RESMI)
+
+Halaman sidebar **Rapat** (generator surat undangan) punya tombol **"Blast ke
+WhatsApp"** yang mengirim *teks* undangan (tanpa lampiran) ke tiap penerima
+ber-nomor lewat gateway pihak ketiga **whacenter** (`app.whacenter.com/api/send`
+— HP yang sudah dipasangi bot). Ini **bukan jalur resmi Meta**, melanggar ToS
+WhatsApp & berisiko nomor diblokir — **hanya untuk uji coba internal**. Aktifkan
+dengan mengisi `WHACENTER_DEVICE_ID` di `.env` (Device ID perangkat yang sudah
+scan QR di whacenter.my.id). Kosong → tombol menolak dengan pesan jelas, teks
+tetap bisa disalin manual dari UI.
+
+### Setup (gratis, ~10 menit)
+
+Lihat komentar lengkap di `backend/.env.example` bagian "WHATSAPP CLOUD
+API" — ringkasnya:
+
+1. Buat App di [developers.facebook.com](https://developers.facebook.com)
+   (use case "Other" → tipe "Business"), tambahkan produk **WhatsApp**.
+2. Halaman **API Setup** app tsb memberi nomor uji coba gratis, Temporary
+   Access Token, dan Phone Number ID → isi ke `WHATSAPP_ACCESS_TOKEN` /
+   `WHATSAPP_PHONE_NUMBER_ID` di `.env`, lalu jalankan ulang server.
+3. Tambahkan nomor penerima uji coba (maks 5, sebelum verifikasi bisnis)
+   lewat "Manage phone number list" di halaman yang sama — nomor harus
+   diverifikasi kode OTP dulu sebelum bisa dikirimi.
+4. Buat 2 **message template** (WhatsApp Manager → Message Templates,
+   kategori *Utility*) bernama persis `notasi_undangan` dan `notasi_notula`
+   — isi body-nya ada di `.env.example` (variabel `{{1}}`, `{{2}}`, dst
+   harus urut sama seperti di sana, karena kode mengirim parameter
+   berurutan). Template biasanya disetujui dalam beberapa menit.
+
+### Batasan platform (bukan bug aplikasi ini)
+
+- WhatsApp **tidak mengizinkan teks bebas** ke nomor yang belum pernah
+  membalas chat bisnis ini dalam 24 jam — karena itu kirim otomatis selalu
+  lewat template yang sudah disetujui, bukan teks bebas.
+- Mode belum-verifikasi-bisnis **hanya bisa kirim ke maks 5 nomor** yang
+  didaftarkan manual sebagai penerima uji. Untuk mengirim ke nomor pegawai
+  sungguhan secara bebas, akun WhatsApp Business perlu diverifikasi lewat
+  Meta Business Manager (tetap gratis, tapi proses administratif terpisah
+  di luar aplikasi ini).
+- Nomor WhatsApp pegawai disimpan di `User.no_whatsapp` (diisi lewat form
+  "Pengguna Baru" di halaman Kelola Pengguna). Kosong → dipakai nomor uji
+  coba (`6285185461625`, ditandai "(nomor uji coba)" di UI) sebagai
+  fallback, supaya fitur ini tetap bisa langsung dicoba tanpa mengisi
+  nomor asli satu-satu dulu.

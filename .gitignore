@@ -11,6 +11,8 @@ backend/notasi.db
 backend/notasi.db.bak-*
 backend/uploads/
 backend/exports/
+backend/*.log
+frontend/*.recovered.html
 
 # Sensitive: real employee credentials / old backups with .env
 backend/migrasi_kredensial_*.txt

@@ -15,6 +15,11 @@ class Settings:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "ganti-dengan-secret-key-acak-yang-panjang")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
+    # Dipakai saat login dengan "Ingat saya" dicentang - token tidak cepat
+    # kedaluwarsa (default 30 hari) supaya pengguna tidak perlu login ulang
+    # tiap sesi browser baru. Tanpa "Ingat saya", tetap pakai
+    # ACCESS_TOKEN_EXPIRE_MINUTES di atas (sesi pendek, default).
+    ACCESS_TOKEN_EXPIRE_MINUTES_REMEMBER: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES_REMEMBER", str(60 * 24 * 30)))
 
     # --- Database ---
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'notasi.db'}")
@@ -166,6 +171,44 @@ class Settings:
     DEFAULT_ADMIN_USERNAME: str = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
     DEFAULT_ADMIN_PASSWORD: str = os.getenv("DEFAULT_ADMIN_PASSWORD", "admin123")
     DEFAULT_ADMIN_NAME: str = os.getenv("DEFAULT_ADMIN_NAME", "Administrator")
+
+    # -------- WHATSAPP CLOUD API (Meta, resmi & gratis) --------
+    # Dipakai fitur "Kirim Otomatis" (undangan/notula ke WhatsApp pegawai) di
+    # services/whatsapp.py. Semua kredensial didapat gratis dari
+    # developers.facebook.com (App WhatsApp Business Platform) - lihat README
+    # bagian "Kirim WhatsApp Otomatis" untuk langkah lengkapnya. Kosong =
+    # fitur kirim-otomatis nonaktif (frontend tetap bisa pakai tautan wa.me
+    # manual sebagai jalan lain, tidak butuh kredensial ini).
+    WHATSAPP_ACCESS_TOKEN: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+    WHATSAPP_API_VERSION: str = os.getenv("WHATSAPP_API_VERSION", "v21.0")
+    # Nama template pesan (dibuat & disetujui lewat Meta Business Manager -
+    # WhatsApp Manager > Message Templates, kategori UTILITY). WhatsApp TIDAK
+    # mengizinkan teks bebas ke nomor yang belum pernah chat duluan - harus
+    # lewat template yang sudah disetujui, karena itu nama & urutan variabel
+    # template ini WAJIB sama persis dengan yang dibuat di Meta Business
+    # Manager (lihat README untuk isi template yang dipakai kode ini).
+    WHATSAPP_TEMPLATE_UNDANGAN: str = os.getenv("WHATSAPP_TEMPLATE_UNDANGAN", "notasi_undangan")
+    WHATSAPP_TEMPLATE_NOTULA: str = os.getenv("WHATSAPP_TEMPLATE_NOTULA", "notasi_notula")
+    WHATSAPP_TEMPLATE_LANG: str = os.getenv("WHATSAPP_TEMPLATE_LANG", "id")
+
+    @property
+    def WHATSAPP_READY(self) -> bool:
+        return bool(self.WHATSAPP_ACCESS_TOKEN and self.WHATSAPP_PHONE_NUMBER_ID)
+
+    # -------- WHATSAPP via whacenter (gateway TIDAK RESMI - HANYA UNTUK PERCOBAAN) --------
+    # Dipakai fitur "Blast Undangan via WhatsApp" (teks polos) di halaman Rapat.
+    # whacenter.my.id men-jembatani WhatsApp lewat HP yang sudah dipasangi bot -
+    # ini BUKAN jalur resmi Meta, melanggar ToS WhatsApp & berisiko nomor
+    # diblokir; pakai hanya untuk uji coba internal. Payload: {device_id, number,
+    # message} -> POST https://app.whacenter.com/api/send. Kosong = tombol blast
+    # nonaktif (frontend tetap bisa salin teks / pakai tautan wa.me manual).
+    WHACENTER_API_URL: str = os.getenv("WHACENTER_API_URL", "https://app.whacenter.com/api/send")
+    WHACENTER_DEVICE_ID: str = os.getenv("WHACENTER_DEVICE_ID", "")
+
+    @property
+    def WHACENTER_READY(self) -> bool:
+        return bool(self.WHACENTER_DEVICE_ID)
 
     # --- Identitas satuan kerja (dipakai di kop surat notulensi) ---
     UNIT_KERJA_DEFAULT: str = os.getenv("UNIT_KERJA_DEFAULT", "BPS Kabupaten Sanggau")

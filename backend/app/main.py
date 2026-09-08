@@ -27,7 +27,8 @@ from .services.summarizer import summarize_transcript
 from .services.docx_export import build_notula_from_template, build_pendahuluan_text
 from .services.pdf_export import convert_docx_to_pdf, find_soffice
 from .utils.storage import _save_upload
-from .routers.rapat import router as rapat_router
+from .routers.rapat import router as rapat_router, TIM_LIST
+from .routers.undangan import router as undangan_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -56,6 +57,8 @@ def _auto_migrate():
             "waktu_mulai_aktual": "DATETIME",
             "waktu_selesai_aktual": "DATETIME",
             "alasan_pembatalan": "TEXT",
+            # Tim internal penyelenggara rapat (lihat models.Meeting.tim).
+            "tim": "TEXT",
         },
         "users": {
             "is_active": "INTEGER DEFAULT 1",
@@ -64,6 +67,9 @@ def _auto_migrate():
             "jabatan": "TEXT",
             "urutan": "INTEGER DEFAULT 0",
             "must_reset_password": "INTEGER DEFAULT 0",
+            "no_whatsapp": "TEXT",
+            # Tim internal pegawai, boleh gabungan "X/Y" (lihat models.User.tim).
+            "tim": "TEXT",
         },
         "meeting_peserta": {
             "user_id": "INTEGER",
@@ -75,6 +81,11 @@ def _auto_migrate():
         },
         "app_settings": {
             "whisper_local_device": "TEXT",
+        },
+        "meeting_dokumen": {
+            # Item #7 - koordinat GPS mentah ("lat,lon") dokumentasi foto,
+            # dipakai tombol "Buka Peta" (lihat models.py MeetingDokumen).
+            "koordinat": "TEXT",
         },
     }
     with engine.connect() as conn:
@@ -155,6 +166,7 @@ app.add_middleware(
 # Alur rapat baru (lihat RANCANGAN_UX_ALUR_RAPAT_NOTASI_v1.md) - endpoint
 # lama di file ini tidak diubah, semua rute baru ada di routers/rapat.py.
 app.include_router(rapat_router)
+app.include_router(undangan_router)
 
 
 @app.on_event("startup")
@@ -178,7 +190,7 @@ def seed_data():
     # ada satupun pegawai), seed langsung sebagai akun User supaya aplikasi
     # tetap bisa dipakai tanpa migrasi manual.
     if db.query(models.User).filter(models.User.role == models.RoleEnum.pegawai).count() == 0:
-        for i, (nama, jabatan) in enumerate(PEGAWAI_SEED):
+        for i, (nama, jabatan, tim, no_wa) in enumerate(PEGAWAI_SEED):
             username = re.sub(r"[^a-z0-9]+", ".", nama.lower()).strip(".") or f"pegawai{i}"
             base_username, n = username, 1
             while db.query(models.User).filter(models.User.username == username).first():
@@ -187,12 +199,29 @@ def seed_data():
             db.add(models.User(
                 nama=nama, username=username, email=None,
                 password_hash=hash_password(uuid.uuid4().hex[:12]),
-                role=models.RoleEnum.pegawai, jabatan=jabatan, urutan=i,
-                must_reset_password=True,
+                role=models.RoleEnum.pegawai, jabatan=jabatan, urutan=i, tim=tim,
+                no_whatsapp=no_wa, must_reset_password=True,
             ))
         db.commit()
         print(f"[NOTASI] {len(PEGAWAI_SEED)} akun pegawai berhasil dimuat "
               "(instalasi baru - kredensial acak, wajib reset saat login pertama).")
+
+    # Backfill kolom User.tim / User.no_whatsapp untuk instalasi yang pegawai-nya
+    # sudah ter-seed SEBELUM field ini ada - cocokkan by nama persis (idempoten).
+    _bf = 0
+    for _row in PEGAWAI_SEED:
+        _nama, _jab, _tim = _row[0], _row[1], _row[2]
+        _no_wa = _row[3] if len(_row) > 3 else None
+        u = db.query(models.User).filter(models.User.nama == _nama).first()
+        if not u:
+            continue
+        if _tim and not (u.tim or "").strip():
+            u.tim = _tim; _bf += 1
+        if _no_wa and not (u.no_whatsapp or "").strip():
+            u.no_whatsapp = _no_wa; _bf += 1
+    if _bf:
+        db.commit()
+        print(f"[NOTASI] Migrasi: {_bf} field tim/no_whatsapp pegawai diisi.")
 
     # Rapat yang terhenti di status 'diproses' karena server dimatikan -> tandai gagal
     stale = db.query(models.Meeting).filter(models.Meeting.status == models.StatusEnum.diproses).all()
@@ -229,6 +258,7 @@ def public_config():
         "stt_provider": settings.STT_PROVIDER,
         "llm_provider": settings.LLM_PROVIDER,
         "pdf_ready": find_soffice() is not None,
+        "wa_api_ready": settings.WHATSAPP_READY,
         "whisper_model": settings.WHISPER_LOCAL_MODEL if settings.STT_PROVIDER == "local" else None,
         "whisper_device": settings.WHISPER_LOCAL_DEVICE if settings.STT_PROVIDER == "local" else None,
         "nama_instansi": settings.NAMA_INSTANSI,
@@ -251,7 +281,7 @@ def _mask_key(key: str) -> str:
 
 
 @app.get("/api/settings", response_model=schemas.AppSettingsOut)
-def get_ai_settings(current_user: models.User = Depends(require_roles("admin"))):
+def get_ai_settings(current_user: models.User = Depends(get_current_user)):
     return schemas.AppSettingsOut(
         stt_provider=settings.STT_PROVIDER,
         llm_provider=settings.LLM_PROVIDER,
@@ -265,7 +295,7 @@ def get_ai_settings(current_user: models.User = Depends(require_roles("admin")))
 
 @app.patch("/api/settings", response_model=schemas.AppSettingsOut)
 def update_ai_settings(payload: schemas.AppSettingsUpdate, db: Session = Depends(get_db),
-                        current_user: models.User = Depends(require_roles("admin"))):
+                        current_user: models.User = Depends(get_current_user)):
     data = payload.model_dump(exclude_unset=True)
     if "openai_api_key" in data and current_user.role != models.RoleEnum.admin:
         raise HTTPException(status_code=403, detail="Hanya admin yang dapat mengubah OpenAI API Key")
@@ -325,7 +355,8 @@ def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Username atau kata sandi salah")
     if user.is_active is False:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Akun ini telah dinonaktifkan, hubungi administrator")
-    token = create_access_token({"sub": user.username, "role": user.role.value})
+    expires_minutes = settings.ACCESS_TOKEN_EXPIRE_MINUTES_REMEMBER if payload.ingat_saya else None
+    token = create_access_token({"sub": user.username, "role": user.role.value}, expires_minutes=expires_minutes)
     return schemas.Token(access_token=token)
 
 
@@ -350,7 +381,8 @@ def register(payload: schemas.UserCreate, db: Session = Depends(get_db),
     user = models.User(
         nama=payload.nama, username=payload.username, email=payload.email,
         password_hash=hash_password(payload.password), role=role,
-        jabatan=payload.jabatan,
+        jabatan=payload.jabatan, no_whatsapp=payload.no_whatsapp,
+        tim=(payload.tim or None),
     )
     db.add(user)
     db.commit()
@@ -410,6 +442,10 @@ def update_user(user_id: int, payload: schemas.UserUpdate, db: Session = Depends
         user.email = payload.email
     if payload.jabatan is not None:
         user.jabatan = payload.jabatan
+    if payload.no_whatsapp is not None:
+        user.no_whatsapp = payload.no_whatsapp
+    if payload.tim is not None:
+        user.tim = (payload.tim or None)
     if payload.is_active is not None:
         user.is_active = payload.is_active
 
@@ -1035,11 +1071,82 @@ def dashboard_stats(db: Session = Depends(get_db), current_user: models.User = D
         key = tgl[:7] if tgl else "unknown"
         counts[key] = counts.get(key, 0) + 1
 
+    tahun_prefix = today.strftime("%Y")
+    per_tim = {
+        t: db.query(models.Meeting).filter(
+            models.Meeting.tim == t,
+            models.Meeting.tanggal.like(f"{tahun_prefix}-%"),
+        ).count()
+        for t in TIM_LIST
+    }
+    rapat_pegawai = (
+        db.query(models.MeetingPeserta.meeting_id)
+        .filter(models.MeetingPeserta.user_id == current_user.id)
+        .distinct().count()
+    )
+
     return schemas.DashboardStats(
         total_rapat=total_rapat, notulensi_bulan_ini=notulensi_bulan_ini,
         total_arsip=total_arsip,
         grafik_per_bulan=dict(sorted(counts.items())),
+        per_tim=per_tim, rapat_pegawai=rapat_pegawai,
     )
+
+
+# ============================================================
+#  NOTIFIKASI (bell/inbox di header) - ditulis oleh buat_notifikasi() di
+#  routers/rapat.py pada titik tertentu (notulis ditunjuk, draft notula
+#  selesai/gagal disusun AI). Endpoint di sini murni baca/tandai-dibaca,
+#  jadi ditaruh di main.py (bukan router rapat.py yang di-prefix /api/rapat)
+#  karena scope-nya per-user, bukan per-rapat.
+# ============================================================
+@app.get("/api/notifikasi", response_model=List[schemas.NotifikasiOut])
+def list_notifikasi(hanya_belum_dibaca: bool = False, limit: int = 30,
+                     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    q = db.query(models.Notifikasi).filter(models.Notifikasi.user_id == current_user.id)
+    if hanya_belum_dibaca:
+        q = q.filter(models.Notifikasi.dibaca.is_(False))
+    rows = q.order_by(models.Notifikasi.dibuat_pada.desc()).limit(limit).all()
+    out = []
+    for n in rows:
+        judul_rapat = None
+        if n.rapat_id:
+            m = db.query(models.Meeting.judul_rapat).filter(models.Meeting.id == n.rapat_id).first()
+            judul_rapat = m[0] if m else None
+        out.append(schemas.NotifikasiOut(
+            id=n.id, judul=n.judul, pesan=n.pesan, rapat_id=n.rapat_id,
+            rapat_judul=judul_rapat, dibaca=n.dibaca, dibuat_pada=n.dibuat_pada,
+        ))
+    return out
+
+
+@app.get("/api/notifikasi/jumlah-belum-dibaca")
+def jumlah_notifikasi_belum_dibaca(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    jumlah = db.query(models.Notifikasi).filter(
+        models.Notifikasi.user_id == current_user.id, models.Notifikasi.dibaca.is_(False)
+    ).count()
+    return {"jumlah": jumlah}
+
+
+@app.post("/api/notifikasi/{notif_id}/baca")
+def tandai_notifikasi_dibaca(notif_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    n = db.query(models.Notifikasi).filter(
+        models.Notifikasi.id == notif_id, models.Notifikasi.user_id == current_user.id
+    ).first()
+    if not n:
+        raise HTTPException(status_code=404, detail="Notifikasi tidak ditemukan")
+    n.dibaca = True
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/notifikasi/baca-semua")
+def tandai_semua_notifikasi_dibaca(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    db.query(models.Notifikasi).filter(
+        models.Notifikasi.user_id == current_user.id, models.Notifikasi.dibaca.is_(False)
+    ).update({"dibaca": True})
+    db.commit()
+    return {"ok": True}
 
 
 # ============================================================

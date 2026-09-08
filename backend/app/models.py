@@ -144,6 +144,15 @@ class User(Base):
     urutan = Column(Integer, default=0)   # menjaga urutan tampilan sesuai daftar asli
     must_reset_password = Column(Boolean, default=False)
     created_at = Column(DateTime, default=now_wib)
+    # Nomor WhatsApp (format bebas, mis. "0851-xxx" atau "+62851xxx") - dipakai
+    # fitur broadcast undangan/notula lewat wa.me (lihat frontend waNomorBersih()).
+    # Kosong -> frontend jatuh ke nomor uji coba, bukan error.
+    no_whatsapp = Column(String(30), nullable=True)
+    # Tim internal kantor (Umum/IPDS/Produksi/Distribusi/Neraca/Sosial). Boleh
+    # gabungan "X/Y" untuk pegawai yang merangkap 2 tim - dia ikut kalau rapat
+    # internal tim X MAUPUN tim Y (lihat routers/rapat.py._users_in_tim). NULL =
+    # tidak masuk struktur tim teknis (Kepala BPS, operator layanan).
+    tim = Column(String(40), nullable=True)
 
     meetings = relationship("Meeting", back_populates="pembuat", foreign_keys="Meeting.user_id")
 
@@ -188,6 +197,10 @@ class Meeting(Base):
 
     # --- Kop / info rapat (mengikuti template-notule-kegiatan.md) ---
     unit_kerja = Column(String(200), default="BPS Kabupaten Sanggau")
+    # Tim internal penyelenggara (satu dari Umum/IPDS/Produksi/Distribusi/Neraca/
+    # Sosial), NULL = lintas-tim / tidak ditandai. Dipakai warna kalender &
+    # tombol "Pilih Rapat Tim" (auto-isi peserta dari User.tim).
+    tim = Column(String(20), nullable=True)
     judul_rapat = Column(String(255), nullable=False)   # -> "Topik"
     tanggal = Column(String(20), nullable=False)        # YYYY-MM-DD
     waktu_mulai = Column(String(10))                    # "08:30"
@@ -375,6 +388,10 @@ class MeetingDokumen(Base):
     diunggah_pasca_rapat = Column(Boolean, default=False)
     diunggah_oleh = Column(Integer, ForeignKey("users.id"), nullable=True)
     diunggah_pada = Column(DateTime, default=now_wib)
+    # Item #7 - koordinat GPS mentah "lat,lon" (diisi popup crop/tag foto
+    # dokumentasi lewat geolocation), dipakai tombol "Buka Peta" di frontend.
+    # Hanya relevan untuk jenis=dokumentasi; kolom lain biarkan NULL.
+    koordinat = Column(String(64), nullable=True)
 
     meeting = relationship("Meeting")
 
@@ -524,3 +541,21 @@ class MeetingStatusLog(Base):
     catatan = Column(Text, nullable=True)
 
     meeting = relationship("Meeting")
+
+
+class Notifikasi(Base):
+    """Notifikasi in-app per user (bell/inbox di header) - ditulis oleh
+    buat_notifikasi() di routers/rapat.py pada titik-titik tertentu (notulis
+    ditunjuk, draft notula selesai/gagal disusun AI), dibaca lewat
+    GET /api/notifikasi. Tabel baru murni (bukan kolom tambahan di tabel
+    lama), jadi cukup dibuat otomatis oleh Base.metadata.create_all() di
+    main.py tanpa perlu masuk _auto_migrate()."""
+    __tablename__ = "notifikasi"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    judul = Column(String(150), nullable=False)
+    pesan = Column(String(500), nullable=True)
+    rapat_id = Column(Integer, ForeignKey("meetings.id"), nullable=True)
+    dibaca = Column(Boolean, default=False, nullable=False)
+    dibuat_pada = Column(DateTime, default=now_wib)

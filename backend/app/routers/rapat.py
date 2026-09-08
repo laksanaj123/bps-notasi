@@ -8,17 +8,22 @@ lama tidak diubah oleh modul ini.
 Aturan penting: jangan pernah menulis `meeting.lifecycle_status = ...`
 langsung di sini - selalu lewat `rapat_lifecycle.transisi()`.
 """
+import io
 import json
+import re
 import shutil
 import tempfile
 import threading
 import uuid
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from PIL import Image, ImageDraw, ImageFont
+from pypdf import PdfReader, PdfWriter
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -31,12 +36,33 @@ from ..services.docx_export import build_notula_from_template, build_pendahuluan
 from ..services.pdf_export import convert_docx_to_pdf
 from ..services.summarizer import summarize_transcript
 from ..services.transcription import transcribe_audio
+from ..services.whatsapp import kirim_pesan_template
+from ..utils.indo_date import format_tanggal_lengkap
 from ..utils.storage import _save_upload
 from ..utils.tz import now_wib
+
+# Sama seperti WA_NOMOR_UJICOBA di frontend (index.html) - dipakai fallback
+# saat User.no_whatsapp kosong, supaya fitur kirim WA tetap bisa langsung
+# dicoba tanpa mengisi nomor asli tiap pegawai dulu.
+WA_NOMOR_UJICOBA = "6285185461625"
 
 router = APIRouter(prefix="/api/rapat", tags=["rapat"])
 
 S = models.MeetingLifecycleStatus
+
+# Tim internal kantor - urutan tetap, dipakai dropdown & warna kalender.
+TIM_LIST = ["Umum", "IPDS", "Produksi", "Distribusi", "Neraca", "Sosial"]
+
+
+def _users_in_tim(db: Session, tim: str) -> list:
+    """Semua pegawai yang timnya memuat `tim` - pegawai merangkap ("X/Y") ikut
+    saat rapat internal tim X MAUPUN tim Y. Urut sesuai `urutan` seed."""
+    tim = (tim or "").strip()
+    rows = (db.query(models.User)
+            .filter(models.User.role == models.RoleEnum.pegawai,
+                    models.User.tim.isnot(None))
+            .order_by(models.User.urutan).all())
+    return [u for u in rows if tim in [t.strip() for t in (u.tim or "").split("/")]]
 
 
 def _set_progress(db: Session, meeting: models.Meeting, pct: int, stage: str):
@@ -57,6 +83,20 @@ def _get_rapat_or_404(db: Session, rapat_id: int) -> models.Meeting:
     if not meeting or meeting.lifecycle_status is None:
         raise HTTPException(status_code=404, detail="Rapat tidak ditemukan")
     return meeting
+
+
+def buat_notifikasi(db: Session, user_id: Optional[int], judul: str, pesan: str = None, rapat_id: int = None):
+    """Tulis satu notifikasi in-app (bell/inbox header, lihat GET /api/notifikasi
+    di main.py). user_id None (mis. rapat tanpa notulis ditunjuk) -> dilewati
+    saja, bukan error. Tidak melempar exception ke pemanggil kalau gagal commit
+    (notifikasi hanya pelengkap, tidak boleh menggagalkan aksi utama)."""
+    if not user_id:
+        return
+    try:
+        db.add(models.Notifikasi(user_id=user_id, judul=judul, pesan=pesan, rapat_id=rapat_id))
+        db.commit()
+    except Exception:
+        db.rollback()
 
 
 def _peserta_nama_gabungan(db: Session, meeting_id: int) -> str:
@@ -101,7 +141,8 @@ def _to_rapat_out(db: Session, meeting: models.Meeting) -> schemas.RapatOut:
 
     return schemas.RapatOut(
         id=meeting.id, judul_rapat=meeting.judul_rapat, tanggal=meeting.tanggal,
-        unit_kerja=meeting.unit_kerja, waktu_mulai=meeting.waktu_mulai, waktu_selesai=meeting.waktu_selesai,
+        unit_kerja=meeting.unit_kerja, tim=meeting.tim,
+        waktu_mulai=meeting.waktu_mulai, waktu_selesai=meeting.waktu_selesai,
         lokasi=meeting.lokasi, jenis_media=meeting.jenis_media.value if meeting.jenis_media else None,
         agenda=meeting.agenda, catatan_notulis=meeting.catatan_notulis,
         pimpinan=schemas.PegawaiOut.model_validate(pimpinan) if pimpinan else None,
@@ -128,6 +169,16 @@ def _to_peserta_out(p: models.MeetingPeserta) -> schemas.PesertaOut:
     )
 
 
+def _normalize_ringkasan(raw):
+    """Kompatibel data lama (ringkasan = list[str], sebelum item paragraf/poin
+    ditambahkan) - setiap string diperlakukan sebagai poin biasa. Cermin dari
+    normalisasi yang sama di renderEdList() (frontend)."""
+    return [
+        {"teks": item, "tipe": "poin"} if isinstance(item, str) else item
+        for item in (raw or [])
+    ]
+
+
 def _to_notula_out(db: Session, notula: models.MeetingNotula) -> schemas.NotulaOut:
     difinal_nama = None
     if notula.difinalisasi_oleh:
@@ -136,7 +187,7 @@ def _to_notula_out(db: Session, notula: models.MeetingNotula) -> schemas.NotulaO
     return schemas.NotulaOut(
         id=notula.id, status=notula.status.value,
         pendahuluan=notula.pendahuluan,
-        ringkasan=json.loads(notula.ringkasan or "[]"),
+        ringkasan=_normalize_ringkasan(json.loads(notula.ringkasan or "[]")),
         pertanyaan_jawaban=json.loads(notula.pertanyaan_jawaban or "[]"),
         keputusan=json.loads(notula.keputusan or "[]"),
         catatan_tambahan=notula.catatan_tambahan, sumber=notula.sumber.value if notula.sumber else None,
@@ -177,9 +228,10 @@ def create_rapat(payload: schemas.RapatCreate, db: Session = Depends(get_db),
     field lain (termasuk peserta/dokumen/rekaman) dilengkapi kapan saja
     lewat endpoint masing-masing, sebelum/selama/setelah rapat.
 
-    Siapapun yang login boleh membuat rapat (admin atau pegawai) - pembuat
-    otomatis tercatat sebagai notulis_id rapat ini (lihat auth.can_write_meeting),
-    admin dapat menugaskan ulang notulis kapan saja lewat PATCH /{rapat_id}."""
+    Siapapun yang login boleh membuat rapat (admin atau pegawai). Notulis
+    diambil dari payload (dipilih di form Buat Rapat); kalau tidak diisi,
+    pembuat rapat yang tercatat sebagai notulis (lihat auth.can_write_meeting).
+    Admin dapat menugaskan ulang notulis kapan saja lewat PATCH /{rapat_id}."""
     jenis_media = None
     if payload.jenis_media:
         try:
@@ -189,11 +241,12 @@ def create_rapat(payload: schemas.RapatCreate, db: Session = Depends(get_db),
 
     meeting = models.Meeting(
         unit_kerja=payload.unit_kerja or settings.UNIT_KERJA_DEFAULT,
+        tim=(payload.tim or None),
         judul_rapat=payload.judul_rapat, tanggal=payload.tanggal,
         waktu_mulai=payload.waktu_mulai, waktu_selesai=payload.waktu_selesai,
         lokasi=payload.lokasi, agenda=payload.agenda, catatan_notulis=payload.catatan_notulis,
         pimpinan_id=payload.pimpinan_id,
-        notulis_id=current_user.id,
+        notulis_id=payload.notulis_id or current_user.id,
         jenis_media=jenis_media,
         lifecycle_status=S.draft,
         user_id=current_user.id,
@@ -213,11 +266,14 @@ def create_rapat(payload: schemas.RapatCreate, db: Session = Depends(get_db),
 
 @router.get("", response_model=List[schemas.RapatOut])
 def list_rapat(q: str = "", status: str = "", hanya_peserta_saya: bool = False, peran: str = "",
+                tim: str = "",
                 db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     query = db.query(models.Meeting).filter(models.Meeting.lifecycle_status.is_not(None))
     if q.strip():
         like = f"%{q.strip()}%"
         query = query.filter(models.Meeting.judul_rapat.ilike(like))
+    if tim.strip():
+        query = query.filter(models.Meeting.tim == tim.strip())
     if status.strip():
         try:
             query = query.filter(models.Meeting.lifecycle_status == S(status))
@@ -273,9 +329,15 @@ def update_rapat(rapat_id: int, payload: schemas.RapatUpdate, db: Session = Depe
             data["jenis_media"] = models.JenisMediaEnum(data["jenis_media"])
         except ValueError:
             raise HTTPException(status_code=400, detail="jenis_media tidak valid")
+    notulis_lama = meeting.notulis_id
     for field, value in data.items():
         setattr(meeting, field, value)
     db.commit()
+    # Notulis baru ditunjuk (bukan pembuatnya sendiri) -> beri tahu lewat notifikasi.
+    if "notulis_id" in data and meeting.notulis_id and meeting.notulis_id != notulis_lama \
+            and meeting.notulis_id != current_user.id:
+        buat_notifikasi(db, meeting.notulis_id, "Anda ditunjuk sebagai notulis",
+                         f'Anda ditunjuk sebagai notulis untuk rapat "{meeting.judul_rapat}".', rapat_id=meeting.id)
     return _to_rapat_out(db, meeting)
 
 
@@ -398,12 +460,67 @@ def tambah_peserta(rapat_id: int, payload: schemas.PesertaCreate, db: Session = 
     db.add(kehadiran)
     db.commit()
     db.refresh(p)
+    if payload.user_id and payload.user_id != current_user.id:
+        buat_notifikasi(db, payload.user_id, "Undangan rapat",
+                        f'Anda diundang ke rapat "{meeting.judul_rapat}" pada {meeting.tanggal}.',
+                        rapat_id=rapat_id)
     return _to_peserta_out(p)
 
 
 @router.get("/{rapat_id}/peserta", response_model=List[schemas.PesertaOut])
 def list_peserta(rapat_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     _get_rapat_or_404(db, rapat_id)
+    rows = db.query(models.MeetingPeserta).filter(models.MeetingPeserta.meeting_id == rapat_id).all()
+    return [_to_peserta_out(p) for p in rows]
+
+
+@router.post("/{rapat_id}/peserta/tim", response_model=List[schemas.PesertaOut])
+def isi_peserta_dari_tim(rapat_id: int, payload: schemas.PesertaTimIn, db: Session = Depends(get_db),
+                          current_user: models.User = Depends(get_current_user)):
+    """Tombol "Pilih Rapat Tim" di langkah Peserta: set Meeting.tim = payload.tim
+    lalu ISI ULANG daftar peserta undangan (peran=undangan) dari semua pegawai
+    yang timnya memuat tim itu (pegawai merangkap "X/Y" ikut di kedua tim).
+    Peserta yang ditambahkan manual sebelumnya sebagai 'undangan' akan diganti;
+    peserta walk-in/tambahan (peran lain) tidak disentuh."""
+    meeting = _get_rapat_or_404(db, rapat_id)
+    assert_can_write_meeting(current_user, meeting)
+    tolak_jika_diarsipkan(meeting)
+    if payload.tim not in TIM_LIST:
+        raise HTTPException(status_code=400, detail=f"Tim tidak valid. Pilihan: {', '.join(TIM_LIST)}")
+    anggota = _users_in_tim(db, payload.tim)
+    if not anggota:
+        raise HTTPException(status_code=404, detail=f"Tidak ada pegawai terdaftar di tim {payload.tim}.")
+
+    meeting.tim = payload.tim
+    # Buang peserta undangan lama (beserta baris kehadirannya).
+    lama = db.query(models.MeetingPeserta).filter(
+        models.MeetingPeserta.meeting_id == rapat_id,
+        models.MeetingPeserta.peran == models.PeranPesertaEnum.undangan,
+    ).all()
+    for p in lama:
+        db.query(models.MeetingKehadiran).filter(models.MeetingKehadiran.peserta_id == p.id).delete()
+        db.delete(p)
+    db.flush()
+
+    for u in anggota:
+        p = models.MeetingPeserta(
+            meeting_id=rapat_id, user_id=u.id,
+            peran=models.PeranPesertaEnum.undangan,
+            sumber=models.SumberPesertaEnum.diundang,
+            ditambahkan_oleh=current_user.id,
+        )
+        db.add(p)
+        db.flush()
+        db.add(models.MeetingKehadiran(
+            peserta_id=p.id, status_kehadiran=models.StatusKehadiranEnum.hadir,
+            waktu_hadir=now_wib(), dicatat_oleh=current_user.id,
+        ))
+    db.commit()
+    for u in anggota:
+        if u.id != current_user.id:
+            buat_notifikasi(db, u.id, "Undangan rapat",
+                            f'Anda diundang ke rapat "{meeting.judul_rapat}" pada {meeting.tanggal}.',
+                            rapat_id=rapat_id)
     rows = db.query(models.MeetingPeserta).filter(models.MeetingPeserta.meeting_id == rapat_id).all()
     return [_to_peserta_out(p) for p in rows]
 
@@ -518,15 +635,17 @@ def tambah_walkin(rapat_id: int, payload: schemas.WalkinCreate, db: Session = De
 # ============================================================
 @router.post("/{rapat_id}/dokumen", response_model=List[schemas.DokumenOut])
 def upload_dokumen(rapat_id: int, jenis: str = Form("lainnya"), files: List[UploadFile] = File(...),
+                    koordinat: Optional[str] = Form(None),
                     db: Session = Depends(get_db),
                     current_user: models.User = Depends(get_current_user)):
     meeting = _get_rapat_or_404(db, rapat_id)
     assert_can_write_meeting(current_user, meeting)
-    tolak_jika_diarsipkan(meeting)
     try:
         jenis_enum = models.JenisDokumenEnum(jenis)
     except ValueError:
         raise HTTPException(status_code=400, detail="jenis dokumen tidak valid")
+    if jenis_enum != models.JenisDokumenEnum.notula:
+        tolak_jika_diarsipkan(meeting)
 
     pasca_rapat = meeting.lifecycle_status not in (S.draft, S.dijadwalkan, S.berlangsung)
     hasil = []
@@ -550,6 +669,7 @@ def upload_dokumen(rapat_id: int, jenis: str = Form("lainnya"), files: List[Uplo
             file_path=saved_path.name, mime_type=f.content_type,
             ukuran_bytes=saved_path.stat().st_size, versi=versi_baru,
             diunggah_pasca_rapat=pasca_rapat, diunggah_oleh=current_user.id,
+            koordinat=koordinat if jenis_enum == models.JenisDokumenEnum.dokumentasi else None,
         )
         db.add(dok)
         db.commit()
@@ -558,6 +678,7 @@ def upload_dokumen(rapat_id: int, jenis: str = Form("lainnya"), files: List[Uplo
             id=dok.id, nama_file=dok.nama_file, jenis=dok.jenis.value, url=f"/media/dokumen/{dok.file_path}",
             mime_type=dok.mime_type, ukuran_bytes=dok.ukuran_bytes, versi=dok.versi,
             status=dok.status.value, diunggah_pasca_rapat=dok.diunggah_pasca_rapat, diunggah_pada=dok.diunggah_pada,
+            koordinat=dok.koordinat,
         ))
     return hasil
 
@@ -574,8 +695,150 @@ def list_dokumen(rapat_id: int, db: Session = Depends(get_db), current_user: mod
             id=d.id, nama_file=d.nama_file, jenis=d.jenis.value, url=f"/media/dokumen/{d.file_path}",
             mime_type=d.mime_type, ukuran_bytes=d.ukuran_bytes, versi=d.versi,
             status=d.status.value, diunggah_pasca_rapat=d.diunggah_pasca_rapat, diunggah_pada=d.diunggah_pada,
+            koordinat=d.koordinat,
         ) for d in rows
     ]
+
+
+@router.get("/{rapat_id}/dokumen/zip")
+def download_dokumen_zip(rapat_id: int, db: Session = Depends(get_db),
+                          current_user: models.User = Depends(get_current_user)):
+    """Bundel semua dokumen kelengkapan (kategori aktif) rapat ini jadi satu
+    berkas ZIP - dipakai tombol "Download ZIP" di halaman Arsip Rapat."""
+    meeting = _get_rapat_or_404(db, rapat_id)
+    rows = db.query(models.MeetingDokumen).filter(
+        models.MeetingDokumen.meeting_id == rapat_id,
+        models.MeetingDokumen.status == models.StatusDokumenEnum.aktif,
+    ).order_by(models.MeetingDokumen.jenis, models.MeetingDokumen.diunggah_pada).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Belum ada dokumen untuk diunduh")
+
+    buf = io.BytesIO()
+    used_names = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for d in rows:
+            full_path = settings.DOKUMEN_DIR / d.file_path
+            if not full_path.exists():
+                continue
+            arcname = f"{d.jenis.value}/{d.nama_file}"
+            if arcname in used_names:
+                stem, suffix = Path(d.nama_file).stem, Path(d.nama_file).suffix
+                arcname = f"{d.jenis.value}/{stem}_{d.id}{suffix}"
+            used_names.add(arcname)
+            zf.write(full_path, arcname)
+    buf.seek(0)
+
+    safe_judul = re.sub(r"[^\w\-. ]", "_", meeting.judul_rapat)[:60].strip() or f"rapat-{rapat_id}"
+    filename = f"Kelengkapan {safe_judul}.zip"
+    return StreamingResponse(buf, media_type="application/zip",
+                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+_GAMBAR_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff"}
+
+
+def _halaman_pembatas_pdf(judul: str) -> bytes:
+    """Satu halaman A4 polos berisi judul kategori. TIDAK dipakai lagi oleh
+    kompilasi_dokumen_pdf() (item #3 - kompilasi dibuat tanpa halaman pemisah
+    antar bagian) - dibiarkan ada untuk kompatibilitas kalau dibutuhkan lagi."""
+    W, H = 1240, 1754  # kira-kira A4 @150dpi
+    img = Image.new("RGB", (W, H), "white")
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("arialbd.ttf", 64)
+    except Exception:
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), judul, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(((W - tw) / 2, (H - th) / 2), judul, fill=(13, 71, 161), font=font)
+    buf = io.BytesIO()
+    img.save(buf, "PDF")
+    return buf.getvalue()
+
+
+def _ke_pdf_bytes(path: Path) -> bytes | None:
+    """Konversi satu berkas ke PDF (byte), dipakai kompilasi_dokumen_pdf().
+    Gambar lewat Pillow, format lain (docx/pptx/doc/ppt/odt/rtf/txt/dst)
+    lewat LibreOffice (convert_docx_to_pdf() - namanya "docx" tapi soffice
+    --convert-to pdf sebenarnya generik untuk banyak format). None kalau
+    gagal, supaya satu berkas rusak/format aneh tidak menggagalkan seluruh
+    kompilasi (dilewati saja oleh pemanggil)."""
+    ext = path.suffix.lower()
+    try:
+        if ext == ".pdf":
+            return path.read_bytes()
+        if ext in _GAMBAR_EXT:
+            img = Image.open(path).convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, "PDF")
+            return buf.getvalue()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = convert_docx_to_pdf(path, Path(tmpdir))
+            return pdf_path.read_bytes()
+    except Exception:
+        return None
+
+
+@router.get("/{rapat_id}/dokumen/kompilasi-pdf")
+def kompilasi_dokumen_pdf(rapat_id: int, db: Session = Depends(get_db),
+                           current_user: models.User = Depends(get_current_user)):
+    """Gabungkan Undangan + Notula resmi + Materi + Daftar Hadir jadi satu PDF
+    siap cetak/kirim - pelengkap "Download ZIP" di Arsip Rapat. Dokumentasi
+    (foto) sengaja TIDAK diikutkan - sudah termuat di dalam notula resmi
+    (lihat build_notula_from_template/dokumentasi_files). Halaman-halaman
+    tiap kategori digabung apa adanya, TANPA halaman pemisah judul (item #3)."""
+    meeting = _get_rapat_or_404(db, rapat_id)
+    writer = PdfWriter()
+    ada_isi = False
+
+    def tambah_bytes(data: bytes):
+        nonlocal ada_isi
+        for page in PdfReader(io.BytesIO(data)).pages:
+            writer.add_page(page)
+        ada_isi = True
+
+    def tambah_kategori(jenis, label=None):
+        rows = db.query(models.MeetingDokumen).filter(
+            models.MeetingDokumen.meeting_id == rapat_id,
+            models.MeetingDokumen.jenis == jenis,
+            models.MeetingDokumen.status == models.StatusDokumenEnum.aktif,
+        ).order_by(models.MeetingDokumen.diunggah_pada).all()
+        if not rows:
+            return
+        for d in rows:
+            full_path = settings.DOKUMEN_DIR / d.file_path
+            if not full_path.exists():
+                continue
+            data = _ke_pdf_bytes(full_path)
+            if data:
+                tambah_bytes(data)
+
+    tambah_kategori(models.JenisDokumenEnum.undangan, "UNDANGAN")
+
+    # Notula RESMI hasil generate sistem (bukan kategori upload "notula" -
+    # itu untuk scan/salinan manual, kalau ada tetap diikutkan lewat
+    # tambah_kategori di bawah) - dilewati saja (bukan gagal total) kalau
+    # notula belum diisi atau LibreOffice tidak tersedia di server.
+    try:
+        _, docx_path = _build_export_docx(db, rapat_id, current_user)
+        pdf_path = convert_docx_to_pdf(docx_path, settings.EXPORT_DIR)
+        tambah_bytes(pdf_path.read_bytes())
+    except (HTTPException, RuntimeError):
+        pass
+
+    tambah_kategori(models.JenisDokumenEnum.materi, "MATERI")
+    tambah_kategori(models.JenisDokumenEnum.daftar_hadir, "DAFTAR HADIR")
+
+    if not ada_isi:
+        raise HTTPException(status_code=404, detail="Belum ada undangan/notula/materi/daftar hadir untuk dikompilasi")
+
+    buf = io.BytesIO()
+    writer.write(buf)
+    buf.seek(0)
+    safe_judul = re.sub(r"[^\w\-. ]", "_", meeting.judul_rapat)[:60].strip() or f"rapat-{rapat_id}"
+    filename = f"Kompilasi {safe_judul}.pdf"
+    return StreamingResponse(buf, media_type="application/pdf",
+                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.delete("/{rapat_id}/dokumen/{dokumen_id}")
@@ -732,6 +995,8 @@ def live_snapshot_rekaman(rapat_id: int, rekaman_id: int, file: UploadFile = Fil
             speakers=[{"speaker_label": s["speaker_label"], "teks": s["teks"]} for s in speakers] if speakers else [],
         )
     except Exception as e:
+        import traceback
+        print("[NOTASI] live-snapshot gagal:\n" + traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Gagal memproses cuplikan langsung: {e}")
     finally:
         tmp_path.unlink(missing_ok=True)
@@ -949,6 +1214,34 @@ def _get_or_create_notula(db: Session, meeting_id: int) -> models.MeetingNotula:
     return notula
 
 
+def _kumpulkan_teks_materi(db: Session, meeting_id: int) -> str:
+    """Item #4 - gabungkan teks hasil ekstraksi seluruh Dokumen Materi
+    (MeetingDokumen jenis="materi", status aktif) milik rapat ini, dipakai
+    sebagai konteks tambahan untuk AI Summary (meeting_context["materi_rapat"]).
+    Berkas yang gagal diekstrak/tidak didukung dilewati saja (tidak
+    menggagalkan seluruh peringkasan) - sama seperti pola _ke_pdf_bytes()."""
+    rows = db.query(models.MeetingDokumen).filter(
+        models.MeetingDokumen.meeting_id == meeting_id,
+        models.MeetingDokumen.jenis == models.JenisDokumenEnum.materi,
+        models.MeetingDokumen.status == models.StatusDokumenEnum.aktif,
+    ).order_by(models.MeetingDokumen.diunggah_pada).all()
+    bagian = []
+    for d in rows:
+        full_path = settings.DOKUMEN_DIR / d.file_path
+        if not full_path.exists():
+            continue
+        try:
+            teks = extract_text(full_path)
+        except UnsupportedMaterialError:
+            continue
+        except Exception:
+            continue
+        if teks:
+            teks = teks[: settings.MAX_MATERI_CHARS]
+            bagian.append(f"--- {d.nama_file} ---\n{teks}")
+    return "\n\n".join(bagian)
+
+
 def _run_notula(meeting_id: int):
     db = SessionLocal()
     try:
@@ -966,17 +1259,37 @@ def _run_notula(meeting_id: int):
             _set_progress(db, meeting, 20, "Menyusun ringkasan, keputusan, dan tanya-jawab dengan AI")
             pimpinan = db.query(models.User).filter(models.User.id == meeting.pimpinan_id).first() \
                 if meeting.pimpinan_id else None
-            result = summarize_transcript(transkrip.teks, {
+            ctx = {
                 "judul_rapat": meeting.judul_rapat,
                 "tanggal": meeting.tanggal,
                 "pimpinan": pimpinan.nama if pimpinan else "",
                 "peserta": _peserta_nama_gabungan(db, meeting_id),
                 "agenda": meeting.agenda or "",
-                # Ekstraksi teks dokumen (meeting_dokumen) sebagai konteks LLM
-                # menyusul di Fase 2/3 bersamaan dengan UI tab Dokumen.
-                "materi_rapat": "",
+                # Item #4 - teks Dokumen Materi yang diunggah user sebagai konteks LLM.
+                "materi_rapat": _kumpulkan_teks_materi(db, meeting_id),
                 "catatan_notulis": meeting.catatan_notulis or "",
-            }, struktur="ringkas")
+            }
+            result = summarize_transcript(transkrip.teks, ctx, struktur="ringkas")
+
+            def _kosong(r):
+                return not r.get("ringkasan") and not r.get("pertanyaan_jawaban")
+
+            # Dokumen Materi kadang membuat LLM lokal kecil "ngaco" - membalas JSON
+            # valid tapi di luar skema (mis. {"BerAKHLAK": 1.0}) sehingga ringkasan
+            # kosong. Kalau itu terjadi, ulangi sekali tanpa materi: ringkasan dari
+            # transkrip saja jauh lebih berguna daripada notula kosong.
+            if _kosong(result) and ctx["materi_rapat"]:
+                print(f"[NOTASI] Notula rapat {meeting_id}: hasil kosong dengan Dokumen Materi, "
+                      f"coba ulang tanpa materi")
+                _set_progress(db, meeting, 40, "Menyusun ulang ringkasan tanpa dokumen materi")
+                ctx["materi_rapat"] = ""
+                result = summarize_transcript(transkrip.teks, ctx, struktur="ringkas")
+
+            # AI "berhasil" tapi tetap tidak menghasilkan apa-apa - perlakukan
+            # sebagai gagal supaya notulis diberi tahu & bisa isi manual, bukan
+            # disuguhi draft kosong yang tampak seolah sukses (lalu tertimpa saat autosave).
+            if _kosong(result):
+                raise RuntimeError("AI tidak menghasilkan ringkasan apa pun dari transkrip ini")
             _set_progress(db, meeting, 90, "Menyimpan hasil ke basis data")
             notula.ringkasan = json.dumps(result["ringkasan"], ensure_ascii=False)
             notula.pertanyaan_jawaban = json.dumps(result["pertanyaan_jawaban"], ensure_ascii=False)
@@ -988,11 +1301,17 @@ def _run_notula(meeting_id: int):
             db.commit()
             transisi(db, meeting, "notula_berhasil", actor=None, catatan="Draft notula dibuat otomatis oleh AI")
             _set_progress(db, meeting, 100, "Selesai")
+            buat_notifikasi(db, meeting.notulis_id or meeting.user_id, "Draft notula siap direview",
+                             f'Draft notula rapat "{meeting.judul_rapat}" sudah selesai disusun AI - silakan cek & lengkapi.',
+                             rapat_id=meeting.id)
         except Exception as e:
             db.rollback()
             notula = _get_or_create_notula(db, meeting_id)
             transisi(db, meeting, "notula_gagal", actor=None, catatan=f"Generate notula gagal: {e}")
             _set_progress(db, meeting, meeting.progress or 0, f"Gagal: {e}")
+            buat_notifikasi(db, meeting.notulis_id or meeting.user_id, "Gagal menyusun draft notula",
+                             f'Draf notula rapat "{meeting.judul_rapat}" gagal disusun otomatis - Anda tetap bisa mengisinya secara manual.',
+                             rapat_id=meeting.id)
     finally:
         db.close()
 
@@ -1024,6 +1343,13 @@ def notula_manual(rapat_id: int, db: Session = Depends(get_db),
     notula = _get_or_create_notula(db, rapat_id)
     notula.status = models.StatusNotulaEnum.draft_manual
     notula.sumber = models.SumberNotulaEnum.manual
+    # Item #11b - auto-isi pendahuluan dari info rapat begitu masuk mode "Isi
+    # Form", sama seperti yang dilakukan get_notula() untuk rapat yang sudah
+    # SELESAI - endpoint ini tidak lewat get_notula() jadi perlu diseed di sini juga.
+    if not notula.pendahuluan:
+        pimpinan = db.query(models.User).filter(models.User.id == meeting.pimpinan_id).first() \
+            if meeting.pimpinan_id else None
+        notula.pendahuluan = build_pendahuluan_text(meeting, pimpinan)
     db.commit()
     transisi(db, meeting, "notula_manual", actor=current_user)
     return _to_notula_out(db, notula)
@@ -1062,19 +1388,51 @@ def edit_notula(rapat_id: int, payload: schemas.NotulaUpdate, db: Session = Depe
     if not notula:
         notula = _get_or_create_notula(db, rapat_id)
     data = payload.model_dump(exclude_unset=True)
-    if "pendahuluan" in data:
+
+    # Lindungi draft AI yang belum disentuh dari "penghapusan tak sengaja":
+    # frontend wizard kadang me-render form notula sebelum _run_notula selesai
+    # mengisi ringkasan (mis. polling status sempat error lalu ditelan), lalu
+    # saat pengguna menekan "Simpan"/"Lanjut" autosave mengirim ringkasan=[]
+    # yang menimpa hasil AI yang sudah keburu tersimpan. Selama notula masih
+    # murni draft AI (status=draft_ai, sumber=llm) dan sudah punya isi, abaikan
+    # payload yang justru mengosongkannya - begitu pengguna benar-benar
+    # mengedit (payload berisi), sumber berubah jadi 'campuran' dan guard ini
+    # tidak berlaku lagi sehingga penghapusan yang disengaja tetap bisa.
+    draft_ai_utuh = (notula.status == models.StatusNotulaEnum.draft_ai
+                     and notula.sumber == models.SumberNotulaEnum.llm)
+    ada_perubahan_isi = False
+
+    def _terapkan_json(field: str):
+        """Tulis field JSON list (ringkasan/pertanyaan_jawaban/keputusan/
+        gambar_pembahasan) dari `data`, dengan guard anti-clobber."""
+        nonlocal ada_perubahan_isi
+        if field not in data or data[field] is None:
+            return
+        baru = data[field]
+        lama = json.loads(getattr(notula, field) or "[]")
+        if baru == lama:
+            return  # no-op - jangan tulis, jangan tandai 'campuran'
+        if draft_ai_utuh and lama and not baru:
+            print(f"[NOTASI] edit_notula rapat {rapat_id}: abaikan {field}=[] "
+                  f"(draft AI utuh, {len(lama)} item dipertahankan)")
+            return
+        setattr(notula, field, json.dumps(baru, ensure_ascii=False))
+        ada_perubahan_isi = True
+
+    if "pendahuluan" in data and data["pendahuluan"] != notula.pendahuluan:
         notula.pendahuluan = data["pendahuluan"]
-    if "ringkasan" in data and data["ringkasan"] is not None:
-        notula.ringkasan = json.dumps(data["ringkasan"], ensure_ascii=False)
-    if "pertanyaan_jawaban" in data and data["pertanyaan_jawaban"] is not None:
-        notula.pertanyaan_jawaban = json.dumps(data["pertanyaan_jawaban"], ensure_ascii=False)
-    if "keputusan" in data and data["keputusan"] is not None:
-        notula.keputusan = json.dumps(data["keputusan"], ensure_ascii=False)
-    if "catatan_tambahan" in data:
+        ada_perubahan_isi = True
+    _terapkan_json("ringkasan")
+    _terapkan_json("pertanyaan_jawaban")
+    _terapkan_json("keputusan")
+    if "catatan_tambahan" in data and data["catatan_tambahan"] != notula.catatan_tambahan:
         notula.catatan_tambahan = data["catatan_tambahan"]
-    if "gambar_pembahasan" in data and data["gambar_pembahasan"] is not None:
-        notula.gambar_pembahasan = json.dumps(data["gambar_pembahasan"], ensure_ascii=False)
-    if notula.sumber == models.SumberNotulaEnum.llm:
+        ada_perubahan_isi = True
+    _terapkan_json("gambar_pembahasan")
+    # Hanya tandai "campuran" kalau memang ada isi yang berubah - jangan sampai
+    # autosave yang seluruh isinya ditolak _tolak_pengosongan() malah menonaktifkan
+    # guard untuk request berikutnya.
+    if ada_perubahan_isi and notula.sumber == models.SumberNotulaEnum.llm:
         notula.sumber = models.SumberNotulaEnum.campuran
     # Item 39: menyimpan (bukan finalisasi) menandai notula sedang "Proses" -
     # lihat notulaStatusSimpleLabel() di frontend, yang menampilkan Proses
@@ -1331,7 +1689,7 @@ def _build_export_docx(db: Session, rapat_id: int, current_user: models.User) ->
     try:
         build_notula_from_template(
             meeting=meeting,
-            ringkasan=json.loads(notula.ringkasan or "[]"),
+            ringkasan=_normalize_ringkasan(json.loads(notula.ringkasan or "[]")),
             keputusan=json.loads(notula.keputusan or "[]"),
             tindak_lanjut=[{
                 "deskripsi": t.deskripsi, "penanggung_jawab": t.penanggung_jawab,
@@ -1377,3 +1735,73 @@ def export_pdf(rapat_id: int, db: Session = Depends(get_db),
         filename=f"Notula - {meeting.judul_rapat}.pdf",
         media_type="application/pdf",
     )
+
+
+# ============================================================
+#  KIRIM WHATSAPP OTOMATIS (WhatsApp Cloud API - lihat services/whatsapp.py
+#  untuk penjelasan lengkap batasan platform: harus lewat template yang
+#  disetujui, mode uji coba maks 5 nomor terverifikasi). Melengkapi tautan
+#  wa.me manual di frontend (yang selalu tersedia, tanpa kredensial) -
+#  endpoint ini untuk yang sudah setup kredensial & mau benar-benar
+#  otomatis tanpa klik "Kirim" satu-satu di WhatsApp.
+# ============================================================
+def _peserta_nomor_wa(p: models.MeetingPeserta) -> tuple:
+    """-> (nama, nomor, dipakai_fallback)"""
+    if p.user_id and p.user:
+        nama, nomor = p.user.nama, p.user.no_whatsapp
+    else:
+        nama, nomor = (p.nama_manual or "-"), None
+    if not nomor:
+        return nama, WA_NOMOR_UJICOBA, True
+    return nama, nomor, False
+
+
+@router.post("/{rapat_id}/kirim-wa/undangan")
+def kirim_wa_undangan(rapat_id: int, db: Session = Depends(get_db),
+                       current_user: models.User = Depends(get_current_user)):
+    meeting = _get_rapat_or_404(db, rapat_id)
+    assert_can_write_meeting(current_user, meeting)
+    if not settings.WHATSAPP_READY:
+        raise HTTPException(status_code=400, detail="WhatsApp Cloud API belum dikonfigurasi di server (isi WHATSAPP_ACCESS_TOKEN/WHATSAPP_PHONE_NUMBER_ID di .env - lihat README).")
+    peserta_rows = db.query(models.MeetingPeserta).filter(models.MeetingPeserta.meeting_id == rapat_id).all()
+    if not peserta_rows:
+        raise HTTPException(status_code=404, detail="Belum ada peserta untuk dikirimi undangan")
+    waktu = f"{meeting.waktu_mulai or '-'}{' - ' + meeting.waktu_selesai if meeting.waktu_selesai else ''}"
+    hasil = []
+    for p in peserta_rows:
+        nama, nomor, fallback = _peserta_nomor_wa(p)
+        r = kirim_pesan_template(nomor, settings.WHATSAPP_TEMPLATE_UNDANGAN, [
+            meeting.judul_rapat, nama, format_tanggal_lengkap(meeting.tanggal), waktu,
+            meeting.lokasi or "-", meeting.agenda or "-", meeting.unit_kerja or settings.UNIT_KERJA_DEFAULT,
+        ])
+        hasil.append({"nama": nama, "nomor": nomor, "nomor_uji_coba": fallback, **r})
+    return {"hasil": hasil}
+
+
+@router.post("/{rapat_id}/kirim-wa/notula")
+def kirim_wa_notula(rapat_id: int, db: Session = Depends(get_db),
+                     current_user: models.User = Depends(get_current_user)):
+    meeting = _get_rapat_or_404(db, rapat_id)
+    assert_can_write_meeting(current_user, meeting)
+    if not settings.WHATSAPP_READY:
+        raise HTTPException(status_code=400, detail="WhatsApp Cloud API belum dikonfigurasi di server (isi WHATSAPP_ACCESS_TOKEN/WHATSAPP_PHONE_NUMBER_ID di .env - lihat README).")
+    notula = db.query(models.MeetingNotula).filter(models.MeetingNotula.meeting_id == rapat_id).first()
+    if not notula:
+        raise HTTPException(status_code=400, detail="Notula belum diisi, belum ada yang bisa dikirim")
+    peserta_rows = db.query(models.MeetingPeserta).filter(models.MeetingPeserta.meeting_id == rapat_id).all()
+    if not peserta_rows:
+        raise HTTPException(status_code=404, detail="Belum ada peserta untuk dikirimi notula")
+    poin = [item.get("teks", "") if isinstance(item, dict) else str(item)
+            for item in json.loads(notula.ringkasan or "[]")][:6]
+    ringkasan_text = "\n".join(f"- {p}" for p in poin) or "(ringkasan menyusul)"
+    if notula.pendahuluan:
+        ringkasan_text = f"{notula.pendahuluan}\n\n{ringkasan_text}"
+    hasil = []
+    for p in peserta_rows:
+        nama, nomor, fallback = _peserta_nomor_wa(p)
+        r = kirim_pesan_template(nomor, settings.WHATSAPP_TEMPLATE_NOTULA, [
+            meeting.judul_rapat, nama, format_tanggal_lengkap(meeting.tanggal),
+            ringkasan_text, meeting.unit_kerja or settings.UNIT_KERJA_DEFAULT,
+        ])
+        hasil.append({"nama": nama, "nomor": nomor, "nomor_uji_coba": fallback, **r})
+    return {"hasil": hasil}

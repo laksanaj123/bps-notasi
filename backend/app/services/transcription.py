@@ -10,6 +10,7 @@ Layanan Speech-to-Text dengan 3 provider yang dapat dipilih lewat .env
 import os
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from ..config import settings
@@ -26,10 +27,23 @@ Pimpinan: Baik, kita sepakati itu sebagai keputusan rapat. Mohon disiapkan renca
 _local_model = None
 _batched_pipeline = None
 
+# Objek WhisperModel/CTranslate2 TIDAK aman dipakai beberapa thread sekaligus:
+# endpoint sync FastAPI (mis. live-snapshot yang dipanggil berkala) berjalan di
+# threadpool, jadi dua permintaan yang tumpang-tindih bisa (a) sama-sama melihat
+# _local_model None lalu memuat model dua kali, atau (b) memanggil transcribe()
+# bersamaan di model yang sama -> Internal Server Error. RLock ini menserialkan
+# pemuatan model + inferensi dalam satu proses. Worker chunking paralel jalan di
+# PROSES terpisah (ProcessPoolExecutor), punya lock sendiri, jadi tidak terpengaruh.
+_model_lock = threading.RLock()
+
 
 def _get_local_model():
     global _local_model
-    if _local_model is None:
+    if _local_model is not None:
+        return _local_model
+    with _model_lock:
+        if _local_model is not None:
+            return _local_model
         try:
             from faster_whisper import WhisperModel
         except ImportError as e:
@@ -148,8 +162,6 @@ def _transcribe_local_raw(file_path: Path, return_segments: bool = False, progre
     segments = [{"start","end","text"}] per segmen faster-whisper - dipakai
     speaker diarization (lihat services/diarization.py) untuk mencocokkan
     ucapan ke pembicara berdasarkan waktu."""
-    transcriber, is_batched = _get_transcriber()
-
     kwargs = dict(
         language=settings.WHISPER_LANGUAGE or None,  # kosong = deteksi bahasa otomatis (bilingual id/en)
         beam_size=settings.WHISPER_BEAM_SIZE,       # 1 = greedy, 2-3x lebih cepat
@@ -157,24 +169,32 @@ def _transcribe_local_raw(file_path: Path, return_segments: bool = False, progre
         vad_parameters=dict(min_silence_duration_ms=500),
         condition_on_previous_text=False,           # cegah loop halusinasi & lebih cepat
     )
-    if is_batched:
-        kwargs["batch_size"] = settings.WHISPER_BATCH_SIZE
 
-    t0 = time.time()
-    segments_iter, info = transcriber.transcribe(str(file_path), **kwargs)
-    total_duration = getattr(info, "duration", 0) or 0
-    text_parts = []
-    seg_list = []
-    for seg in segments_iter:  # generator: kerja nyata terjadi di sini
-        txt = seg.text.strip()
-        text_parts.append(txt)
-        if return_segments:
-            seg_list.append({"start": seg.start, "end": seg.end, "text": txt})
-        if progress_cb and total_duration:
-            progress_cb(min(1.0, seg.end / total_duration), "Mentranskripsi audio")
-    teks = " ".join(text_parts)
-    elapsed = time.time() - t0
-    durasi_audio = getattr(info, "duration", 0) or 0
+    # Serialkan pemuatan model + inferensi: satu model faster-whisper tidak
+    # boleh dipakai dua thread sekaligus (lihat catatan di _model_lock). Iterasi
+    # generator ikut di dalam lock karena di situ kerja transcribe() sebenarnya
+    # terjadi. RLock -> _get_transcriber()/_get_local_model() boleh re-acquire.
+    with _model_lock:
+        transcriber, is_batched = _get_transcriber()
+        if is_batched:
+            kwargs["batch_size"] = settings.WHISPER_BATCH_SIZE
+
+        t0 = time.time()
+        segments_iter, info = transcriber.transcribe(str(file_path), **kwargs)
+        total_duration = getattr(info, "duration", 0) or 0
+        text_parts = []
+        seg_list = []
+        for seg in segments_iter:  # generator: kerja nyata terjadi di sini
+            txt = seg.text.strip()
+            text_parts.append(txt)
+            if return_segments:
+                seg_list.append({"start": seg.start, "end": seg.end, "text": txt})
+            if progress_cb and total_duration:
+                progress_cb(min(1.0, seg.end / total_duration), "Mentranskripsi audio")
+        teks = " ".join(text_parts)
+        elapsed = time.time() - t0
+        durasi_audio = getattr(info, "duration", 0) or 0
+
     if durasi_audio:
         print(f"[NOTASI] Transkripsi: audio {durasi_audio:.0f} dtk diproses dalam "
               f"{elapsed:.0f} dtk ({durasi_audio / max(elapsed, 0.1):.1f}x realtime).")

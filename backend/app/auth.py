@@ -88,10 +88,14 @@ def can_write_meeting(user: models.User, meeting: models.Meeting) -> bool:
     """Hanya ada 2 role permanen (admin/pegawai) - "menjadi notulis" bukan
     role, melainkan penugasan per-rapat: siapapun (admin atau pegawai) yang
     ditunjuk sebagai notulis_id rapat ini punya hak tulis penuh atas rapat
-    tsb. Admin selalu punya hak tulis di semua rapat."""
+    tsb. Pembuat rapat (user_id) juga tetap punya hak tulis walau menunjuk
+    orang lain sebagai notulis - kalau tidak, wizard "Buat Rapat" langsung
+    403 di langkah berikutnya begitu notulis diganti. Admin selalu bisa."""
     if user.role == models.RoleEnum.admin:
         return True
-    return meeting.notulis_id is not None and meeting.notulis_id == user.id
+    if meeting.notulis_id is not None and meeting.notulis_id == user.id:
+        return True
+    return meeting.user_id is not None and meeting.user_id == user.id
 
 
 def assert_can_write_meeting(user: models.User, meeting: models.Meeting) -> None:

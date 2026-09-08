@@ -41,7 +41,9 @@ _TRANSITIONS: dict[str, dict[models.MeetingLifecycleStatus, models.MeetingLifecy
     # cukup dilacak lewat MeetingTranskrip.status sendiri.
     "mulai_transkripsi":   {S.selesai: S.diproses},
     "transkripsi_selesai": {S.diproses: S.selesai},   # baik berhasil maupun gagal - lihat modul routers/rapat.py
-    "mulai_notula":        {S.selesai: S.diproses},
+    # "Susun ulang via AI" boleh dari REVIEW juga (draft AI sudah ada, notulis
+    # minta AI menyusun ulang) - bukan cuma dari SELESAI (draft pertama).
+    "mulai_notula":        {S.selesai: S.diproses, S.review: S.diproses},
     "notula_gagal":        {S.diproses: S.selesai},
     "notula_manual":       {S.selesai: S.review},
     "notula_berhasil":     {S.diproses: S.review},

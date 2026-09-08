@@ -11,6 +11,7 @@ aplikasi ini (lihat DIARIZATION_ENABLED di config.py).
 Instalasi: pip install -r requirements-diarization.txt (lihat file itu untuk
 cara mendapat HuggingFace token & menerima lisensi model).
 """
+import threading
 import time
 from pathlib import Path
 
@@ -19,6 +20,11 @@ from ..config import settings
 # Singleton lazy-load, sama pola seperti _get_local_model() di transcription.py.
 _pipeline = None
 _pipeline_unavailable = False
+# Pipeline pyannote juga tidak aman dipakai beberapa thread sekaligus; lock ini
+# menserialkan pemuatan model + pemanggilan pipeline() (lihat catatan _model_lock
+# di transcription.py). RLock supaya _get_pipeline() boleh dipanggil dari dalam
+# blok yang sudah memegang lock.
+_pipeline_lock = threading.RLock()
 
 
 def _get_pipeline():
@@ -28,31 +34,38 @@ def _get_pipeline():
     if _pipeline_unavailable:
         return None
 
-    try:
-        from pyannote.audio import Pipeline
-    except ImportError:
-        print("[NOTASI] Diarization dilewati: paket 'pyannote.audio' belum terpasang "
-              "(pip install -r requirements-diarization.txt).")
-        _pipeline_unavailable = True
-        return None
+    with _pipeline_lock:
+        # cek ulang setelah dapat lock - thread lain mungkin sudah memuat
+        if _pipeline is not None:
+            return _pipeline
+        if _pipeline_unavailable:
+            return None
 
-    if not settings.HUGGINGFACE_TOKEN:
-        print("[NOTASI] Diarization dilewati: HUGGINGFACE_TOKEN belum diisi di .env.")
-        _pipeline_unavailable = True
-        return None
+        try:
+            from pyannote.audio import Pipeline
+        except ImportError:
+            print("[NOTASI] Diarization dilewati: paket 'pyannote.audio' belum terpasang "
+                  "(pip install -r requirements-diarization.txt).")
+            _pipeline_unavailable = True
+            return None
 
-    try:
-        t0 = time.time()
-        print(f"[NOTASI] Memuat model diarization '{settings.DIARIZATION_MODEL}'...")
-        _pipeline = Pipeline.from_pretrained(
-            settings.DIARIZATION_MODEL, use_auth_token=settings.HUGGINGFACE_TOKEN,
-        )
-        print(f"[NOTASI] Model diarization siap dalam {time.time() - t0:.1f} detik.")
-        return _pipeline
-    except Exception as e:
-        print(f"[NOTASI] Diarization dilewati: gagal memuat model ({e}).")
-        _pipeline_unavailable = True
-        return None
+        if not settings.HUGGINGFACE_TOKEN:
+            print("[NOTASI] Diarization dilewati: HUGGINGFACE_TOKEN belum diisi di .env.")
+            _pipeline_unavailable = True
+            return None
+
+        try:
+            t0 = time.time()
+            print(f"[NOTASI] Memuat model diarization '{settings.DIARIZATION_MODEL}'...")
+            _pipeline = Pipeline.from_pretrained(
+                settings.DIARIZATION_MODEL, use_auth_token=settings.HUGGINGFACE_TOKEN,
+            )
+            print(f"[NOTASI] Model diarization siap dalam {time.time() - t0:.1f} detik.")
+            return _pipeline
+        except Exception as e:
+            print(f"[NOTASI] Diarization dilewati: gagal memuat model ({e}).")
+            _pipeline_unavailable = True
+            return None
 
 
 def _overlap(a_start: float, a_end: float, b_start: float, b_end: float) -> float:
@@ -78,7 +91,8 @@ def diarize_and_split(audio_path: Path, whisper_segments: list[dict]) -> list[di
 
     try:
         t0 = time.time()
-        diarization = pipeline(str(audio_path))
+        with _pipeline_lock:  # pipeline() bukan reentrant antar-thread
+            diarization = pipeline(str(audio_path))
         print(f"[NOTASI] Diarization selesai dalam {time.time() - t0:.1f} detik.")
     except Exception as e:
         print(f"[NOTASI] Diarization dilewati: proses gagal ({e}).")

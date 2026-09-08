@@ -165,9 +165,13 @@ def _tanya_jawab_section(doc: Document, pertanyaan_jawaban):
         doc.add_paragraph("Tidak ada tanya jawab yang tercatat.")
         return
     for item in pertanyaan_jawaban:
+        nama_penanya = item.get("nama_penanya") or ""
+        nama_penjawab = item.get("nama_penjawab") or ""
         p_t = doc.add_paragraph()
-        p_t.add_run(f"T: {item.get('pertanyaan', '')}").bold = True
-        doc.add_paragraph(f"J: {item.get('jawaban', '')}")
+        awalan_t = f"T ({nama_penanya}): " if nama_penanya else "T: "
+        p_t.add_run(f"{awalan_t}{item.get('pertanyaan', '')}").bold = True
+        awalan_j = f"J ({nama_penjawab}): " if nama_penjawab else "J: "
+        doc.add_paragraph(f"{awalan_j}{item.get('jawaban', '')}")
 
 
 def _tindak_lanjut_table(doc: Document, tindak_lanjut):
@@ -231,29 +235,25 @@ def _dokumentasi_section(doc: Document, meeting, dokumentasi_files):
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         return
 
-    # tampilkan foto 2 kolom per baris menggunakan tabel tanpa border
+    # Foto 1 kolom per baris, lebar 13,5cm & tinggi menyesuaikan (aspect ratio
+    # dijaga otomatis oleh python-docx karena cuma width yang di-set) - tabel
+    # tanpa border dipakai supaya foto+keterangan tetap rapi center-aligned.
     photos = list(dokumentasi_files)
-    rows_needed = (len(photos) + 1) // 2
-    table = doc.add_table(rows=rows_needed, cols=2)
-    idx = 0
-    for r in range(rows_needed):
-        for c in range(2):
-            if idx >= len(photos):
-                break
-            cell = table.rows[r].cells[c]
-            para = cell.paragraphs[0]
-            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = para.add_run()
-            try:
-                run.add_picture(str(photos[idx]["path"]), width=Cm(7))
-            except Exception:
-                para.add_run("[Gagal memuat gambar]")
-            if photos[idx].get("keterangan"):
-                cap = cell.add_paragraph(photos[idx]["keterangan"])
-                cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                cap.runs[0].italic = True
-                cap.runs[0].font.size = Pt(9)
-            idx += 1
+    table = doc.add_table(rows=len(photos), cols=1)
+    for idx, photo in enumerate(photos):
+        cell = table.rows[idx].cells[0]
+        para = cell.paragraphs[0]
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = para.add_run()
+        try:
+            run.add_picture(str(photo["path"]), width=Cm(13.5))
+        except Exception:
+            para.add_run("[Gagal memuat gambar]")
+        if photo.get("keterangan"):
+            cap = cell.add_paragraph(photo["keterangan"])
+            cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            cap.runs[0].italic = True
+            cap.runs[0].font.size = Pt(9)
 
 
 def build_notulensi_docx(meeting, transcript_text, ringkasan, keputusan, tindak_lanjut,
@@ -421,12 +421,20 @@ def _expand_pembahasan(cell, ringkasan, keputusan, tindak_lanjut, pertanyaan_jaw
     anchor = target._p
     gambar_by_index = {g["index"]: g["paths"] for g in (gambar_pembahasan or []) if g.get("paths")}
 
-    def insert_after(text, bold=False):
+    def insert_after(text, bold=False, list_style=False):
         nonlocal anchor
         new_p_el = anchor.makeelement(qn("w:p"), {})
         anchor.addnext(new_p_el)
         from docx.text.paragraph import Paragraph
         new_p = Paragraph(new_p_el, target._parent)
+        # list_style=True -> poin pembahasan/keputusan/tindak-lanjut, dibedakan
+        # visual dari paragraf naratif (pendahuluan) lewat indentasi gaya list
+        # Word ("List Paragraph" - satu-satunya style list yang tersedia di
+        # template ini, lihat notula_template.docx; "List Number"/"List Bullet"
+        # bawaan Word TIDAK ada di template kustom ini jadi tidak bisa dipakai
+        # langsung tanpa membangun definisi numbering.xml sendiri).
+        if list_style:
+            new_p.style = "List Paragraph"
         r = new_p.add_run(text)
         r.bold = bold
         # Paragraf ini XML mentah baru (tanpa pPr/rPr) - font TNR template
@@ -439,11 +447,10 @@ def _expand_pembahasan(cell, ringkasan, keputusan, tindak_lanjut, pertanyaan_jaw
         return new_p
 
     def insert_images_after(paths):
-        # Ukuran dimaksimalkan supaya tetap muat 1 halaman (item #61) - 1
-        # gambar diberi tinggi lebih besar, 2 gambar masing-masing dikecilkan
-        # supaya keduanya + teks sekitarnya tidak meluber ke halaman berikut.
+        # Lebar 13,5cm & tinggi menyesuaikan (aspect ratio dijaga otomatis oleh
+        # python-docx karena cuma width yang di-set) - konsisten dengan ukuran
+        # foto dokumentasi (lihat _dokumentasi_section/_fill_dokumentasi_template).
         nonlocal anchor
-        height_cm = 16 if len(paths) == 1 else 9
         for filename in paths[:2]:
             full_path = settings.DOKUMEN_DIR / filename
             new_p_el = anchor.makeelement(qn("w:p"), {})
@@ -453,38 +460,61 @@ def _expand_pembahasan(cell, ringkasan, keputusan, tindak_lanjut, pertanyaan_jaw
             new_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = new_p.add_run()
             try:
-                run.add_picture(str(full_path), height=Cm(height_cm))
+                run.add_picture(str(full_path), width=Cm(13.5))
             except Exception:
                 run.text = "[Gagal memuat gambar]"
             anchor = new_p_el
 
+    # ringkasan: list of {"teks": str, "tipe": "poin"|"paragraf"} (atau string
+    # polos untuk data lama - lihat _normalize_ringkasan() di routers/rapat.py).
+    # "paragraf" dirender sebagai paragraf prosa biasa (sama seperti pendahuluan,
+    # tanpa nomor/gaya list); "poin" tetap bernomor & bergaya List Paragraph
+    # seperti sebelumnya - nomor urutnya HANYA menghitung item bertipe poin,
+    # supaya paragraf yang disisipkan di antara poin-poin tidak mengacaukan
+    # penomoran. Indeks gambar_by_index tetap posisi asli (0-based) di array,
+    # SELALU dicek terlepas dari tipe, supaya keterkaitan gambar tidak berubah.
+    def _insert_ringkasan_items(items):
+        poin_no = 0
+        for i, item in enumerate(items):
+            if isinstance(item, dict):
+                teks, tipe = item.get("teks", ""), item.get("tipe", "poin")
+            else:
+                teks, tipe = str(item), "poin"
+            if tipe == "paragraf":
+                insert_after(teks)
+            else:
+                poin_no += 1
+                insert_after(f"{poin_no}. {teks}", list_style=True)
+            if i in gambar_by_index:
+                insert_images_after(gambar_by_index[i])
+
     if struktur == "ringkas":
         if ringkasan:
-            for i, point in enumerate(ringkasan, start=1):
-                insert_after(f"{i}. {point}")
-                if (i - 1) in gambar_by_index:
-                    insert_images_after(gambar_by_index[i - 1])
+            _insert_ringkasan_items(ringkasan)
         else:
             insert_after("Tidak ada poin pembahasan yang tercatat.")
         insert_after("")
         insert_after("Pertanyaan dan Jawaban", bold=True)
         if pertanyaan_jawaban:
             for item in pertanyaan_jawaban:
-                insert_after(f"T: {item.get('pertanyaan', '')}", bold=True)
-                insert_after(f"J: {item.get('jawaban', '')}")
+                nama_penanya = item.get("nama_penanya") or ""
+                nama_penjawab = item.get("nama_penjawab") or ""
+                awalan_t = f"T ({nama_penanya}): " if nama_penanya else "T: "
+                awalan_j = f"J ({nama_penjawab}): " if nama_penjawab else "J: "
+                insert_after(f"{awalan_t}{item.get('pertanyaan', '')}", bold=True)
+                insert_after(f"{awalan_j}{item.get('jawaban', '')}")
         else:
             insert_after("Tidak ada tanya jawab yang tercatat.")
     else:
         if ringkasan:
-            for i, point in enumerate(ringkasan, start=1):
-                insert_after(f"{i}. {point}")
+            _insert_ringkasan_items(ringkasan)
         else:
             insert_after("Tidak ada poin pembahasan yang tercatat.")
         insert_after("")
         insert_after("Keputusan Rapat", bold=True)
         if keputusan:
             for point in keputusan:
-                insert_after(f"- {point}")
+                insert_after(f"• {point}", list_style=True)
         else:
             insert_after("Tidak ada keputusan yang tercatat.")
         insert_after("")
@@ -493,7 +523,7 @@ def _expand_pembahasan(cell, ringkasan, keputusan, tindak_lanjut, pertanyaan_jaw
             for item in tindak_lanjut:
                 pic = item.get("penanggung_jawab") or "-"
                 deadline = item.get("deadline") or "-"
-                insert_after(f"- {item['deskripsi']} (PJ: {pic}, Tenggat: {deadline})")
+                insert_after(f"• {item['deskripsi']} (PJ: {pic}, Tenggat: {deadline})", list_style=True)
         else:
             insert_after("Tidak ada tindak lanjut yang teridentifikasi.")
 
@@ -516,30 +546,26 @@ def _fill_dokumentasi_template(doc: Document, dokumentasi_files):
         target.alignment = WD_ALIGN_PARAGRAPH.CENTER
         return
 
+    # Foto 1 kolom per baris, lebar 13,5cm & tinggi menyesuaikan (aspect ratio
+    # dijaga otomatis oleh python-docx karena cuma width yang di-set).
     photos = list(dokumentasi_files)
-    rows_needed = (len(photos) + 1) // 2
-    table = doc.add_table(rows=rows_needed, cols=2)
-    idx = 0
-    for r in range(rows_needed):
-        for c in range(2):
-            if idx >= len(photos):
-                break
-            cell = table.rows[r].cells[c]
-            para = cell.paragraphs[0]
-            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = para.add_run()
-            try:
-                run.add_picture(str(photos[idx]["path"]), width=Cm(7))
-            except Exception:
-                para.add_run("[Gagal memuat gambar]")
-            if photos[idx].get("keterangan"):
-                cap = cell.add_paragraph(photos[idx]["keterangan"])
-                cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                if cap.runs:
-                    cap.runs[0].italic = True
-                    cap.runs[0].font.size = Pt(9)
-                    cap.runs[0].font.name = "Times New Roman"
-            idx += 1
+    table = doc.add_table(rows=len(photos), cols=1)
+    for idx, photo in enumerate(photos):
+        cell = table.rows[idx].cells[0]
+        para = cell.paragraphs[0]
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = para.add_run()
+        try:
+            run.add_picture(str(photo["path"]), width=Cm(13.5))
+        except Exception:
+            para.add_run("[Gagal memuat gambar]")
+        if photo.get("keterangan"):
+            cap = cell.add_paragraph(photo["keterangan"])
+            cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            if cap.runs:
+                cap.runs[0].italic = True
+                cap.runs[0].font.size = Pt(9)
+                cap.runs[0].font.name = "Times New Roman"
 
     # Tabel baru otomatis ditambahkan python-docx di AKHIR dokumen - pindahkan
     # ke posisi placeholder "{{dokumentasi}}" lalu buang paragraf placeholder-nya.
@@ -664,3 +690,153 @@ def _fix_zoom_schema_quirk(docx_path: Path):
                 data = data.replace(b'<w:zoom w:val="bestFit"/>', b'<w:zoom w:val="bestFit" w:percent="100"/>')
             zout.writestr(item, data)
     shutil.move(tmp_path, docx_path)
+
+
+# ============================================================
+#  SURAT UNDANGAN - mengisi undangan_template.docx resmi BPS Kabupaten
+#  Sanggau. Template dibuat berplaceholder dengan cara membungkus teks
+#  contoh aslinya jadi {{...}} (jadi token = kalimat contoh, bukan nama
+#  field, dan mengandung quirk enkoding kutip melengkung) - karena itu
+#  penggantiannya POSISIONAL: token ke-N pada urutan baca dokumen diisi
+#  field ke-N dari UNDANGAN_FIELD_ORDER, bukan dicocokkan per-string.
+# ============================================================
+UNDANGAN_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "undangan_template.docx"
+
+# Urutan token {{...}} sesuai urutan baca undangan_template.docx (sudah
+# diverifikasi lewat inspeksi). Beberapa key sengaja diulang (nomor_surat &
+# tanggal_surat muncul lagi di halaman Lampiran; kota dipakai di kop surat &
+# alamat tujuan) - value yang sama otomatis terisi di kedua tempat. Token
+# literal "{{Tabel}}" dilewati (tabel penerima diisi terpisah).
+UNDANGAN_FIELD_ORDER = [
+    "nomor_surat", "sifat", "lampiran", "hal", "kota", "tanggal_surat", "kota",
+    "dasar", "hari_tanggal", "waktu", "tempat", "agenda", "nomor_surat", "tanggal_surat",
+]
+
+
+def _iter_undangan_paragraphs(doc):
+    """Kembalikan list paragraf dalam URUTAN DOKUMEN sebenarnya (body + isi sel
+    tabel), supaya penggantian posisional token cocok dengan tata letak
+    template."""
+    from docx.text.paragraph import Paragraph
+    from docx.table import Table
+    out = []
+    for child in doc.element.body.iterchildren():
+        if child.tag == qn("w:p"):
+            out.append(Paragraph(child, doc))
+        elif child.tag == qn("w:tbl"):
+            tbl = Table(child, doc)
+            for row in tbl.rows:
+                for cell in row.cells:
+                    out.extend(cell.paragraphs)
+    return out
+
+
+def _set_para_text(p, text: str):
+    """Tulis `text` ke run pertama paragraf, kosongkan run sisanya (format run
+    pertama dipertahankan) - sama seperti _replace_run_text()."""
+    if p.runs:
+        p.runs[0].text = text
+        for r in p.runs[1:]:
+            r.text = ""
+    else:
+        p.add_run(text)
+
+
+def _apply_positional_tokens(paras, resolve):
+    """Ganti setiap {{...}} pada `paras` (urut) memakai `resolve(token_str)`.
+    Menangani token yang TERBELAH lintas paragraf (mis. agenda multi-baris di
+    template undangan): paragraf pembuka menampung hasil, paragraf tengah
+    dikosongkan, ekor paragraf penutup dipertahankan & dipindai lagi."""
+    i = 0
+    while i < len(paras):
+        text = "".join(r.text for r in paras[i].runs)
+        if "{{" not in text:
+            i += 1
+            continue
+        out, rest, jump_to = "", text, None
+        while True:
+            k = rest.find("{{")
+            if k == -1:
+                out += rest
+                break
+            out += rest[:k]
+            after = rest[k + 2:]
+            e = after.find("}}")
+            if e != -1:
+                out += resolve("{{" + after[:e] + "}}")
+                rest = after[e + 2:]
+                continue
+            # token belum tertutup di paragraf ini -> gabung paragraf berikutnya
+            merged, j, tail = after, i + 1, ""
+            while j < len(paras):
+                ptext = "".join(r.text for r in paras[j].runs)
+                ee = ptext.find("}}")
+                if ee == -1:
+                    merged += "\n" + ptext
+                    j += 1
+                    continue
+                merged += "\n" + ptext[:ee]
+                tail = ptext[ee + 2:]
+                break
+            out += resolve("{{" + merged + "}}")
+            for m in range(i + 1, min(j, len(paras))):
+                _set_para_text(paras[m], "")
+            if j < len(paras):
+                _set_para_text(paras[j], tail)
+                jump_to = j
+            break
+        _set_para_text(paras[i], out)
+        i = jump_to if jump_to is not None else i + 1
+
+
+def _fill_undangan_penerima(table, penerima: list):
+    """Tabel penerima: baris 0-1 header ('No./Nama/Jabatan', '(1)(2)(3)'),
+    baris 2..N baris contoh. Baris index 2 dipakai sebagai pola yang
+    digandakan sesuai jumlah penerima sesungguhnya (pola sama dengan
+    _fill_peserta_rows())."""
+    import docx.table as _docx_table
+    tbl = table._tbl
+    data_rows = list(table.rows)[2:]
+    if not data_rows:
+        return
+    pattern = deepcopy(data_rows[0]._tr)
+    for r in data_rows:
+        r._tr.getparent().remove(r._tr)
+    baris = penerima if penerima else [None]
+    for idx, pn in enumerate(baris, start=1):
+        new_tr = deepcopy(pattern)
+        tbl.append(new_tr)
+        cells = _docx_table._Row(new_tr, table).cells
+        _set_cell_plain_text(cells[0], str(idx) if pn else "")
+        _set_cell_plain_text(cells[1], ((pn or {}).get("nama") or "") if pn else "")
+        _set_cell_plain_text(cells[2], ((pn or {}).get("jabatan") or "-") if pn else "")
+
+
+def build_undangan_from_template(data: dict, penerima: list, output_path: Path) -> Path:
+    """Isi undangan_template.docx dengan `data` (dict berisi key di
+    UNDANGAN_FIELD_ORDER) + `penerima` (list dict {nama, jabatan}). Kembalikan
+    Path .docx hasil. Konversi ke PDF dilakukan pemanggil (convert_docx_to_pdf)."""
+    if not UNDANGAN_TEMPLATE_PATH.exists():
+        raise RuntimeError(f"Template undangan tidak ditemukan: {UNDANGAN_TEMPLATE_PATH}")
+    doc = Document(str(UNDANGAN_TEMPLATE_PATH))
+
+    field_iter = iter(UNDANGAN_FIELD_ORDER)
+
+    def _resolve(token: str) -> str:
+        if token.strip() == "{{Tabel}}":
+            return ""
+        try:
+            key = next(field_iter)
+        except StopIteration:
+            return ""
+        return str(data.get(key, "") or "").strip() or "-"
+
+    _apply_positional_tokens(_iter_undangan_paragraphs(doc), _resolve)
+
+    # Tabel terakhir = "Daftar Undangan" (penerima).
+    if doc.tables:
+        _fill_undangan_penerima(doc.tables[-1], penerima or [])
+
+    doc.save(output_path)
+    _fix_zoom_schema_quirk(output_path)
+    return output_path
